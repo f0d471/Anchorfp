@@ -1,0 +1,7 @@
+# 仓里一律存 LF，检出也用 LF。
+# 理由：sim/ 与 syn/ 下的脚本要在 WSL / Linux 里跑，
+# 带 CR 的 shebang 会让 bash 报 "\r: command not found"。
+* text=auto eol=lf
+
+*.mem text eol=lf
+*.svg text eol=lf

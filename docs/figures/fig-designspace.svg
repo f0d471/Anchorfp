@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img" aria-label="Design space of floating point accumulation, from per-term rounding through the windowed accumulator to exact Kulisch accumulation">
+<style>
+  .s{fill:#fcfcfb}
+  .t1{fill:#0b0b0b}
+  .t2{fill:#52514e}
+  .t3{fill:#77756f}
+  .axis{stroke:#c9c7c1;stroke-width:1.5}
+  .tick{stroke:#c9c7c1;stroke-width:1}
+  .frame{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .card{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .cardsel{fill:none;stroke:#2a78d6;stroke-width:2}
+  .dot{fill:#77756f}
+  .dotsel{fill:#2a78d6}
+  .stem{stroke:#c9c7c1;stroke-width:1}
+  .stemsel{stroke:#2a78d6;stroke-width:1.5}
+  .badge{fill:#2a78d6}
+  text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .s{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .t3{fill:#8f8d85}
+    .axis{stroke:#3d3c39} .tick{stroke:#3d3c39} .frame{stroke:#2e2e2c} .card{stroke:#2e2e2c}
+    .cardsel{stroke:#3987e5} .dot{fill:#8f8d85} .dotsel{fill:#3987e5}
+    .stem{stroke:#3d3c39} .stemsel{stroke:#3987e5} .badge{fill:#3987e5}
+  }
+</style>
+<rect class="s" x="0" y="0" width="880" height="400" rx="8"/>
+<rect class="frame" x="0.5" y="0.5" width="879" height="399" rx="8"/>
+
+<text class="t1" x="32" y="40" font-size="17" font-weight="600">Where this unit sits</text>
+<text class="t2" x="32" y="62" font-size="12.5">Accumulator width decides how often you round. The two ends are well explored; the middle is the engineering question.</text>
+
+<line class="axis" x1="110" y1="120" x2="800" y2="120"/>
+<g class="tick">
+  <line x1="155" y1="114" x2="155" y2="126"/>
+  <line x1="398" y1="114" x2="398" y2="126"/>
+  <line x1="744" y1="114" x2="744" y2="126"/>
+</g>
+<text class="t3" x="800" y="107" font-size="11.5" text-anchor="end">accumulator width, bits (log scale)</text>
+
+<circle class="dot" cx="155" cy="120" r="6"/>
+<circle class="dotsel" cx="398" cy="120" r="8"/>
+<circle class="dot" cx="744" cy="120" r="6"/>
+
+<g class="t1" font-size="12.5" font-weight="600" text-anchor="middle">
+  <text x="155" y="145">24</text>
+  <text x="398" y="147">88</text>
+  <text x="744" y="145">~555</text>
+</g>
+
+<line class="stem" x1="155" y1="152" x2="155" y2="176"/>
+<line class="stemsel" x1="398" y1="154" x2="398" y2="176"/>
+<line class="stem" x1="744" y1="152" x2="744" y2="176"/>
+
+<!-- left card -->
+<rect class="card" x="40" y="176" width="230" height="150" rx="8"/>
+<text class="t1" x="56" y="200" font-size="13" font-weight="600">Round every term</text>
+<text class="t2" x="56" y="222" font-size="11.5">IEEE FMA into an FP32 register.</text>
+<text class="t2" x="56" y="239" font-size="11.5">FPnew, Berkeley HardFloat, and</text>
+<text class="t2" x="56" y="256" font-size="11.5">every soft-core FPU.</text>
+<text class="t1" x="56" y="284" font-size="11.5" font-weight="600">1168 ULP</text>
+<text class="t3" x="56" y="301" font-size="11">worst case over 300 random K=64</text>
+<text class="t3" x="56" y="316" font-size="11">dot products, same reduction order</text>
+
+<!-- middle card, the design point -->
+<rect class="cardsel" x="283" y="176" width="230" height="150" rx="8"/>
+<rect class="badge" x="283" y="176" width="230" height="4" rx="2"/>
+<text class="t1" x="299" y="202" font-size="13" font-weight="600">anchorfp: windowed</text>
+<text class="t2" x="299" y="224" font-size="11.5">Fixed-point window whose anchor</text>
+<text class="t2" x="299" y="241" font-size="11.5">follows the largest term. One</text>
+<text class="t2" x="299" y="258" font-size="11.5">rounding per tile, II = 1.</text>
+<text class="t1" x="299" y="286" font-size="11.5" font-weight="600">0 ULP</text>
+<text class="t3" x="299" y="303" font-size="11">on the same vectors, with a stated</text>
+<text class="t3" x="299" y="318" font-size="11">contract for what it does not cover</text>
+
+<!-- right card -->
+<rect class="card" x="629" y="176" width="230" height="150" rx="8"/>
+<text class="t1" x="645" y="200" font-size="13" font-weight="600">Round once, ever</text>
+<text class="t2" x="645" y="222" font-size="11.5">Kulisch accumulator / posit quire.</text>
+<text class="t2" x="645" y="239" font-size="11.5">Covers the whole FP32 product</text>
+<text class="t2" x="645" y="256" font-size="11.5">range, so nothing is ever shifted out.</text>
+<text class="t1" x="645" y="284" font-size="11.5" font-weight="600">exact by construction</text>
+<text class="t3" x="645" y="301" font-size="11">6.3x the window width, per lane,</text>
+<text class="t3" x="645" y="316" font-size="11">times 32 lanes of fabric</text>
+
+<line class="tick" x1="32" y1="350" x2="848" y2="350"/>
+<text class="t2" x="32" y="372" font-size="11.5">The middle stop buys the measurable part of exactness at 16% of the exact accumulator's width. What it gives up is written down as a contract</text>
+<text class="t2" x="32" y="388" font-size="11.5">rather than left to the reader: five loss paths, three with a computable bound, one with a deterministic 1-ULP construction. See docs/reports/11.</text>
+</svg>
