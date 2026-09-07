@@ -7,16 +7,16 @@
 //
 // NOTE:
 //   1. 项的统一刻度是二元组 (mant48, E)，值恒为 mant48 * 2^(E - 173)
-//   2. 基准跟着运行最大值走，不变式为 B >= E + WinUp，不足时按 WinG 位的量子上抬，
-//      累加器同拍算术右移同样位数，抬过由 win_rescale 报出
+//   2. 基准跟着运行最大值走，不变式 B >= E + WinUp，不足时按 WinG 位的量子上抬，
+//      累加器同拍算术右移同样位数
 //   3. 窗口宽 TW = 48 + WinUp + WinG + WinFrac，累加器再加 8 位求和增长与符号
-//   4. 对阶与规格化共用一个桶形右移器，左移由输入输出两侧的位序翻转实现
-//   5. NaN 与 Inf 不进定点累加器，走旁路 sticky；中间积只在末项舍入时钳一次
-//   6. 调用方须守五条契约，网表里不检查，仅仿真的断言 C1 到 C5 在 fp32_mac_assert.vh
-//   7. win_rescale 报的是「基准移动过」这个事件，不是「丢了非零信息」。两者互不蕴含：
-//      基准移动而移出位全零时它假阳性，普通项对齐右移丢掉非零低位时它假阴性。
-//      真正的信息损失分五类，由 sim/fp_round/mac_error_audit.py 分开计数，
-//      不出端口。实测无抵消场景下前三类的累计误差在结果 ULP 之下约 40 个二进制位
+//   4. 对阶与规格化共用一个桶形右移器，左移由两侧的位序翻转实现
+//   5. NaN 与 Inf 不进定点累加器，走旁路 sticky
+//   6. 调用方的五条契约见 doc/fp.md 5.1，仅仿真的断言在 fp32_mac_assert.vh
+//   7. win_rescale 是「基准移动过」，与「丢了非零信息」互不蕴含，两个方向都会错
+//   8. UseCarrySave = 1 与默认档不逐位等价，不在支持集合内，由例化期检查挡住
+//   9. mac_prec 只报基准重锚这一类，即 need > ShMax 导致旧和被整个清掉；
+//      普通对齐右移丢掉非零低位不在它的覆盖范围内
 //==============================================================================================//
 
 `include "fp32_lat.vh"
@@ -26,7 +26,8 @@ module fp32_mac_unit #(
     parameter WinG         = 16,   // 基准上调的量子，须为 2 的幂
     parameter WinFrac      = 8,    // 最大项 LSB 之下留的位数
     parameter FuseMul      = 1,    // 1 取乘法器级 1 的未舍入积，0 取舍入后的尾数
-    parameter UseCarrySave = 0     // 1 用进位保存累加器，结果与 0 逐位相同
+    parameter UseCarrySave = 0,    // 进位保存累加器，见 NOTE 8，当前不在支持集合内
+    parameter MaxTerms     = 0     // 调用方声明的每 tile 最大项数，0 表示不声明
 ) (
     input             clk,
     input             rst_n,
@@ -38,7 +39,8 @@ module fp32_mac_unit #(
     input      [31:0] psum_in,      // 累加初值
     output reg [31:0] mac_out,      // 累加结果，与 out_valid 同拍有效
     output reg        out_valid,    // 最终结果有效脉冲
-    output reg        win_rescale   // 本 tile 抬过基准，sticky，acc_load 清。见下方 NOTE 7
+    output reg        win_rescale,  // 本 tile 抬过基准，sticky，acc_load 清。见 NOTE 7
+    output reg        mac_prec      // 本 tile 发生过基准重锚，旧和被整个丢弃。见 NOTE 9
 );
 
     localparam TW     = 48 + WinUp + WinG + WinFrac;   // 对齐后一项占的位宽
@@ -63,6 +65,12 @@ module fp32_mac_unit #(
         end
         if (`FP32_MUL_LAT < 2) begin : gen_mul_lat_check
             fp32_error_FP32_MUL_LAT_must_be_at_least_2 u_mul_lat_check ();
+        end
+        if (UseCarrySave != 0) begin : gen_csa_check
+            fp32_error_UseCarrySave_not_in_supported_set u_csa_check ();
+        end
+        if ((MaxTerms != 0) && (MaxTerms > ((1 << (AccW - TW)) - 1))) begin : gen_maxterm_check
+            fp32_error_MaxTerms_exceeds_MAC_certified_bound u_maxterm_check ();
         end
     endgenerate
 
@@ -204,17 +212,14 @@ module fp32_mac_unit #(
     wire               sh_big = (sh_s > ShMax);
     wire [ShAmtW-1:0]  sh_now = sh_big ? {ShAmtW{1'b1}} : sh_s[ShAmtW-1:0];
 
-    // A 级寄存器。基准推导与桶形移位切成两拍，合在一拍时组合锥子过长
+    // A 级寄存器。基准推导与桶形移位切成两拍
     reg  [47:0]       a1_mant;
     reg  [ShAmtW-1:0] a1_sh;
     reg               a1_sign, a1_valid, a1_last;
     reg  [DIdxW-1:0]  a1_d;
     reg               a1_clr;
 
-    // 数据位不接复位，只有随行的有效位与末项标记接。
-    // 下游看这一级只经 a1_valid 与 a1_last 两个门：累加器的更新条件是 term_v，
-    // 而 term_v 溯上去就是 a1_valid，复位期间恒零，数据位是什么都进不了状态。
-    // 少接 48+ShAmtW+DIdxW 位的复位网，换的是控制集与打包密度。
+    // 数据位不接复位，把关的是 a1_valid 与 a1_last
     always @(posedge clk) begin
         a1_mant <= mant_in;
         a1_sh   <= sh_now;
@@ -241,8 +246,7 @@ module fp32_mac_unit #(
 
     wire [AccW-1:0] al_pre = {{(AccW-TW){1'b0}}, a1_mant, {(TW-48){1'b0}}};
 
-    // B 级：桶形移位 + 取二补数
-    // 二补数在这里取好，环里只剩多路器和一次带进位输入的定点加
+    // B 级：桶形移位 + 取二补数。二补数在环外取，环里只剩多路器与一次定点加
     reg  [AccW-1:0] term_q;
     reg             term_cin;
     reg             term_v;
@@ -250,8 +254,7 @@ module fp32_mac_unit #(
     reg  [DIdxW-1:0] term_d;    // 本项要求累加器右移几个量子
     reg             term_clr;   // 本项要求累加器清空后再加
 
-    // 同 A 级：AccW 位的 term_q 与随行的三个小字段不接复位，
-    // 把关的是 term_v 与 term_last 两个
+    // 数据位不接复位，把关的是 term_v 与 term_last
     always @(posedge clk) begin
         term_q   <= a1_sign ? ~sh_out : sh_out;
         term_cin <= a1_sign;
@@ -278,8 +281,7 @@ module fp32_mac_unit #(
         input             clr;
         integer           s;
         begin
-            // 显式零扩展到 32 位再移，直接写会被 lint 判成位宽不符
-            s = {{(32-DIdxW){1'b0}}, d} << WinGLog;
+            s = {{(32-DIdxW){1'b0}}, d} << WinGLog;   // 零扩展到 32 位，否则 lint 判位宽不符
             if (clr || (s >= AccW)) rescale = {AccW{1'b0}};
             else                    rescale = $signed(x) >>> s;
         end
@@ -296,8 +298,7 @@ module fp32_mac_unit #(
             end
             assign acc_val = acc_r;
         end else begin : gen_csa
-            // 3:2 压缩，环内不做进位传播，末项之后走一次进位传播加法。
-            // 二补数的 +1 挪到这里，好让 z 只是一个普通加数
+            // 3:2 压缩，环内不做进位传播，末项之后走一次进位传播加法
             reg  [AccW-1:0] as_r, ac_r;
             wire [AccW-1:0] as_sc = rescale(as_r, term_d, term_clr);
             wire [AccW-1:0] ac_sc = rescale(ac_r, term_d, term_clr);
@@ -344,11 +345,18 @@ module fp32_mac_unit #(
         end
     end
 
-    // 基准移动事件。不等于「丢了非零信息」，两者互不蕴含，见文件头 NOTE 7
+    // 基准移动事件
     always @(posedge clk) begin
         if (!rst_n)                     win_rescale <= 1'b0;
         else if (acc_load)              win_rescale <= 1'b0;
         else if (raise_any)             win_rescale <= 1'b1;
+    end
+
+    // 基准重锚事件，与 win_rescale 分开报，后者的假阳性率高得多
+    always @(posedge clk) begin
+        if (!rst_n)                     mac_prec <= 1'b0;
+        else if (acc_load)              mac_prec <= 1'b0;
+        else if (raise_clr)             mac_prec <= 1'b1;
     end
 
     // Na 级：取模 + 前导零检测
@@ -361,12 +369,7 @@ module fp32_mac_unit #(
     wire            acc_neg = acc_val[AccW-1];
     wire [AccW-1:0] acc_mag = acc_neg ? (~acc_val + {{(AccW-1){1'b0}}, 1'b1}) : acc_val;
 
-    // 前导零检测，两级：先按 GrpW 位一组求或，对组做优先编码定位最高的非零组，
-    // 再在该组内定位最高的置位。合起来就是最高置位的位序。
-    //
-    // 原来是一条 AccW 级的"由低到高扫、后写者胜"的链。那种写法功能没错，
-    // 但综合成什么完全看工具，而这条链正好挂在取模加法器后面，是本级最长的一段。
-    // 两级的组数与组宽都是常量，形状是确定的。
+    // 前导零检测，两级：按 GrpW 位一组求或后对组做优先编码，再在组内定位最高置位
     localparam GrpW  = 8;
     localparam NGrp  = (AccW + GrpW - 1) / GrpW;
     localparam GIdxW = $clog2(NGrp);
@@ -400,28 +403,22 @@ module fp32_mac_unit #(
             if (lz_gbits[lbi]) lz_bsel = lbi[2:0];
     end
 
-    // 全零时给 0，与原来那条链的取值一致。这一档的 lz 不会被用到
-    // （n1_zero 已经把结果引到零路径上），保持一致只是为了不留下无谓的差异
-    // 拼接赋给一条更宽的线，零扩展交给语言做。直接拼成 ShAmtW 位在
-    // GIdxW+3 恰好等于 ShAmtW 时会写出 0 宽度的填充，那是非法的
-    wire [ShAmtW+7:0] lz_pos = {lz_gsel, lz_bsel};
+    // 全零档给 0，该档的 lz 不会被用到（n1_zero 已把结果引到零路径）
+    wire [ShAmtW+7:0] lz_pos = {lz_gsel, lz_bsel};   // 拼宽一些，零扩展交给语言做
+
     wire [ShAmtW-1:0] lz_c   = (|lz_gnz) ? ((AccW - 1) - lz_pos[ShAmtW-1:0])
                                          : {ShAmtW{1'b0}};
 
-    // 末项进加法器的下一拍 acc 才是最终值，所以 n1_go 比 term_last 晚一拍。
-    // 不能与 term_v 相与：末项可能是零积，term_v 为 0 会把末项标记吞掉
-    reg acc_last_q;
+    // 末项进加法器的下一拍 acc 才是最终值，所以 n1_go 比 term_last 晚一拍
+    reg acc_last_q;   // 不与 term_v 相与：末项可能是零积，相与会把标记吞掉
+
     always @(posedge clk) begin
         if (!rst_n) acc_last_q <= 1'b0;
         else        acc_last_q <= term_last;
     end
 
-    // 数据位与 n1_go 分开写。合在一个 if (!rst_n) ... else ... 里的写法
-    // 会让综合器把 rst_n 变成这一整组寄存器的时钟使能：复位期间它们保持不变，
-    // 那正是 CE 的语义。于是 AccW 位乘 lane 数的 CE 端全挂在复位同步器的
-    // 一个输出上，成为一条零级逻辑、纯布线的高扇出路径。
-    // 2026-09-06 布线后实测：整机最差 setup 路径就是它，levels=0，
-    // 终点是 PE_LANE[18] 的 n1_mag_reg 的 CE 脚
+    // 数据位与 n1_go 分开写：合在一个复位块里会让综合器把 rst_n 变成
+    // 这一整组寄存器的时钟使能，那是一条零级逻辑的高扇出路径
     always @(posedge clk) begin
         if (!rst_n) n1_go <= 1'b0;
         else        n1_go <= acc_last_q;
@@ -455,9 +452,7 @@ module fp32_mac_unit #(
     assign sh_in  = n1_go ? mag_rev : al_pre;
     assign sh_amt = n1_go ? n1_lz   : a1_sh;
 
-    // 规格化结果只有三样东西会被舍入用到：高 24 位、guard、其余位的或。
-    // 整条 AccW 位存进来是白存 AccW-26 个触发器，粘滞位的或归约放在这一级做，
-    // 与放在下一级做是同一份逻辑，位置换了而已
+    // 舍入只用到高 24 位、guard 与其余位的或，整条 AccW 位不必存
     reg             n2_go;
     reg [23:0]      n2_top;
     reg             n2_g, n2_stk;
@@ -467,7 +462,7 @@ module fp32_mac_unit #(
     wire [ShAmtW-1:0]  m_pos_u = (AccW - 1) - n1_lz;
     wire signed [11:0] m_pos   = $signed({{(12-ShAmtW){1'b0}}, m_pos_u});
 
-    // 同 Na 级：数据位不要跟 n2_go 挤在一个复位块里，否则 rst_n 成了它们的 CE
+    // 同 Na 级：数据位不与 n2_go 挤在一个复位块里
     always @(posedge clk) begin
         if (!rst_n) n2_go <= 1'b0;
         else        n2_go <= n1_go;
@@ -521,7 +516,7 @@ module fp32_mac_unit #(
         end
     end
 
-    // 契约断言，仅仿真。五条各有独立计数器，mac_assert_quiet 置 1 则只计数不打印
+    // 契约断言，仅仿真
 `ifndef SYNTHESIS
 `define FP32_MAC_ASSERT_INLINE
 `include "fp32_mac_assert.vh"

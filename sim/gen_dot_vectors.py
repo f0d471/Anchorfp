@@ -44,7 +44,7 @@ def main():
     zero_psum = int(av[4]) if len(av) > 4 else 0
     mode = int(av[5]) if len(av) > 5 else 0
     kdep = int(av[6]) if len(av) > 6 else K
-    # fuse=0 是刀 E 的对照档：乘积侧仍按 IEEE 舍入一次再进窗口
+    # fuse=0 是工作点 E 的对照档：乘积侧仍按 IEEE 舍入一次再进窗口
     fuse = bool(int(av[7])) if len(av) > 7 else True
     if kdep < 1 or K % kdep:
         sys.exit("kdep 必须整除 K")
@@ -98,7 +98,7 @@ def main():
         # 第二层对账只在单块时做：多块之间硬件本来就要经 FP32 回灌，
         # 那几次舍入不属于窗口的账
         # 参考层恒取原始 a,b 的无限精度点积（乘积也不舍入），
-        # 这样 fuse=0 与 fuse=1 是拿同一把尺子量的，刀 E 的收益才看得见
+        # 这样 fuse=0 与 fuse=1 是拿同一把尺子量的，工作点 E 的收益才看得见
         if kdep == K and mode in (0, 1, 3):
             ex = exact_dot(psum, ab)
             max_ulp_win = max(max_ulp_win, ulp_gap(chain, ex))

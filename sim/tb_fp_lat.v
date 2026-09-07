@@ -23,12 +23,12 @@
 //
 // 注：FP32_MAC_PACE 现在是 1，已是下界，少一拍喂入那条判据不可达，换成契约注入。
 //
-// 运行方式（fp32_recip 的 .mem 为裸文件名，工作目录须为 rtl/ip/sfu/）：
-//   cd Main/rtl/ip/sfu
-//   iverilog -g2012 -I../fp -o /tmp/tb_fp_lat.vvp \
-//     ../../../sim/fp_round/tb_fp_lat.v \
-//     ../fp/fp32_add.v ../fp/fp32_mul_pipe.v ../fp/fp32_cmp.v \
-//     ../fp/fp32_cvt.v ../fp/fp32_recip.v ../fp/fp32_mac_unit.v \
+// 运行方式（fp32_recip 的 .mem 为裸文件名，工作目录须为放表的 rtl/）：
+//   cd rtl
+//   iverilog -g2012 -I. -o /tmp/tb_fp_lat.vvp \
+//     ../sim/tb_fp_lat.v \
+//     fp32_add.v fp32_mul_pipe.v fp32_cmp.v \
+//     fp32_cvt.v fp32_recip.v fp32_mac_unit.v \
 //     bram_lut_1024x32.v
 //   vvp /tmp/tb_fp_lat.vvp
 //============================================================================

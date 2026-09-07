@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """fp32_mac_unit 定点窗口累加的金标准，两层。
 
-第一层 win_dot()   逐位守门人。用 Python 大整数精确复刻硬件：基准推导与上调、
+第一层 win_dot()   逐位判据。用 Python 大整数精确复刻硬件：基准推导与上调、
                    逐项对齐、累加器算术右移、末项 RNE。硬件与它必须逐位相同。
 第二层 exact_dot() 无限精度参考。用 Fraction 精确求和后一次正确舍入到 FP32，
                    用来证明窗口够宽 —— 第一层与它的差就是窗口造成的全部误差。
@@ -310,31 +310,73 @@ def _rne(fr):
     return (sign << 31) | (exp_b << 23) | (q & 0x7FFFFF)
 
 
+def _ex_class(x):
+    """第二层自己的分类。与第一层的 from_fp32 分开写，两层才有独立的失效模式"""
+    e = (x >> 23) & 0xFF
+    f = x & 0x7FFFFF
+    if e == 0xFF:
+        return "nan" if f else "inf"
+    return "zero" if e == 0 else "num"
+
+
+def _ex_value(x):
+    """FP32 位型 -> Fraction。输入 DAZ，所以 exp 为 0 一律是同符号零"""
+    e = (x >> 23) & 0xFF
+    f = x & 0x7FFFFF
+    if e == 0 or e == 0xFF:
+        return Fraction(0)
+    v = Fraction((1 << 23) | f) * Fraction(2) ** (e - 127 - 23)
+    return -v if x >> 31 else v
+
+
 def exact_dot(psum, ab, fuse=True):
-    """第二层：无限精度求和后一次正确舍入。特殊值语义与第一层一致。"""
+    """第二层：无限精度求和后一次正确舍入。
+
+    这一层不调用第一层的任何函数（from_fp32 / prod / _pack 都不用），
+    位型解释、乘积构造与特殊值分类各写一份。两层共用一份代码的话，
+    那份代码本身的错就不可能靠「两层都过」发现。
+    """
     f_nan = f_infp = f_infn = False
     acc = Fraction(0)
-    ps = from_fp32(psum)
-    if ps.nan:
-        f_nan = True
-    elif ps.inf:
-        if ps.sign:
-            f_infn = True
-        else:
-            f_infp = True
-    elif not ps.zero:
-        acc += ps.value()
-    for k in range(len(ab) // 2):
-        t = prod(ab[2 * k], ab[2 * k + 1], fuse)
-        if t.nan:
+
+    def note_special(cls, sign_neg):
+        nonlocal f_nan, f_infp, f_infn
+        if cls == "nan":
             f_nan = True
-        elif t.inf:
-            if t.sign:
+        elif cls == "inf":
+            if sign_neg:
                 f_infn = True
             else:
                 f_infp = True
-        elif not t.zero:
-            acc += t.value()
+
+    cp = _ex_class(psum)
+    if cp in ("nan", "inf"):
+        note_special(cp, bool(psum >> 31))
+    elif cp == "num":
+        acc += _ex_value(psum)
+
+    for k in range(len(ab) // 2):
+        a, b = ab[2 * k], ab[2 * k + 1]
+        ca, cb = _ex_class(a), _ex_class(b)
+        neg = bool((a ^ b) >> 31)
+        if ca == "nan" or cb == "nan":
+            f_nan = True
+            continue
+        if ca == "inf" or cb == "inf":
+            # Inf 乘零是无效运算，出 NaN；否则按符号记一个 Inf
+            if ca == "zero" or cb == "zero":
+                f_nan = True
+            else:
+                note_special("inf", neg)
+            continue
+        if ca == "zero" or cb == "zero":
+            continue
+        p = _ex_value(a) * _ex_value(b)
+        if not fuse:
+            # 非融合档：乘积先按 IEEE 舍入成 FP32，再进求和
+            p = _ex_value(_rne(p))
+        acc += p
+
     if f_nan or (f_infp and f_infn):
         return 0x7FC00000
     if f_infp:

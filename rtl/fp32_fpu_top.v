@@ -6,8 +6,8 @@
 //   引出，不做延迟对齐，结果 MUX 由调用方 lacc_funcs_top 完成。
 //
 // NOTE:
-//   1. fpu_op 就是 LaCC ISA 的 op 域（恒等映射），编码单一出处在 rtl/ip/lacc/lacc_defs.vh
-//   2. 五条出口的延迟定义在 rtl/ip/fp/fp32_lat.vh，端口注释只引宏名，不写数值
+//   1. fpu_op 就是 LaCC ISA 的 op 域（恒等映射），编码单一出处在 rtl/lacc_defs.vh
+//   2. 五条出口的延迟定义在 rtl/fp32_lat.vh，端口注释只引宏名，不写数值
 //   3. FRECIP 是本模块唯一的近似原语（≤4 ULP），只经 hw_frecipf() 暴露，不接 __divsf3
 //==============================================================================================//
 
@@ -45,7 +45,7 @@ module fp32_fpu_top #(
 );
 
     // 例化不存在的模块，综合与 lint 在例化期即报错（V2001 无编译期断言）。
-    // 例化期仅约束参数与常数关系；延迟常数与实际拍数的一致性由sim/fp_round/tb_fp_lat.v 施加。
+    // 例化期仅约束参数与常数关系；延迟常数与实际拍数的一致性由sim/tb_fp_lat.v 施加。
     generate
         // 例化方传入的 OpWidth 必须等于 ISA 的 op 域宽度（同 lacc_funcs_top 的检查）
         if (OpWidth != `LACC_CMD_WIDTH) begin : gen_op_width_check

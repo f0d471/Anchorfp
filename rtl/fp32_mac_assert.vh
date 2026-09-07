@@ -4,16 +4,12 @@
 // DESCRIPTION: fp32_mac_unit 的调用契约断言，仅仿真。由主文件在 `ifndef SYNTHESIS 内 include。
 //
 // NOTE:
-//   1. 五条契约 C1 到 C5 的正文见 rtl/ip/fp/doc/fp.md 第 5.1 节，改契约要同时改那一份
+//   1. 五条契约 C1 到 C5 的正文见 rtl/datapath-manual.md 第 5.1 节，改契约要同时改那一份
 //   2. 每条各有独立计数器供 TB 层次引用，mac_assert_quiet 置 1 则只计数不打印
 //   3. 网表里不检查这五条：它们是调用方的义务，硬件按契约成立来设计
-//   4. 分成单独一份文件是为了让主文件只剩数据通路，契约变更的 diff 也更清楚
-//   5. 整份内容裹在 FP32_MAC_ASSERT_INLINE 里。本仓的 lint 把 .vh 也当源文件
-//      单独喂给 verilator（tools/ci_lint_local.sh），而这里全是模块内的语句，
-//      单独解析必然是语法错。宏没定义时整份是空的，lint 就过得去。
-//      忘了定义宏也不会静默失效：tb_mac_win 层次引用 dut.mac_c1 到 mac_c5，
-//      断言没展开时 TB 当场编译失败。这一条注错验过：把主文件的 define 注释掉，
-//      iverilog 报 "Unable to bind wire/reg/memory dut.mac_c1"，五个计数器全报
+//   4. 整份内容裹在 FP32_MAC_ASSERT_INLINE 里，宏没定义时是空的。本仓的 lint 把 .vh
+//      单独喂给 verilator，而这里全是模块内的语句，不裹起来单独解析必然是语法错。
+//      忘了定义宏不会静默失效：tb_mac_win 层次引用 dut.mac_c1 到 mac_c5，会编译失败
 //==============================================================================================//
 
 `ifdef FP32_MAC_ASSERT_INLINE
@@ -28,6 +24,9 @@
     integer mac_nterm;    // 本 tile 已进窗口的项数
     reg     mac_drain;    // 末项已发、结果未出
     reg     mac_assert_quiet;
+
+    // 本 tile 的当前计数。acc_load 那一拍 mac_nterm 还是上个 tile 的值
+    wire [31:0] mac_nterm_cur = acc_load ? 32'd0 : mac_nterm[31:0];
 
     initial begin
         mac_c1 = 0; mac_c2 = 0; mac_c3 = 0; mac_c4 = 0; mac_c5 = 0;
@@ -87,13 +86,13 @@
                              `FP32_MAC_OUT_LAT_F(FuseMul), $time);
             end
 
-            // C5 一个 tile 内进窗口的项数不超过求和增长位撑得住的数
+            // C5 一个 tile 内进窗口的项数不超过已认证的上限
             if (acc_load)      mac_nterm <= ps_norm ? 1 : 0;
             else if (fire_in)  mac_nterm <= mac_nterm + 1;
-            if (fire_in && (mac_nterm >= MaxTerm)) begin
+            if (fire_in && (mac_nterm_cur >= MaxTerm)) begin
                 mac_c5 <= mac_c5 + 1;
                 if (!mac_assert_quiet)
-                    $display("[fp32_mac_unit] **ASSERT FAIL** C5 本 tile 项数超过 %0d，累加器会绕回 (t=%0t)",
+                    $display("[fp32_mac_unit] **ASSERT FAIL** C5 本 tile 项数超过已认证的 %0d (t=%0t)",
                              MaxTerm, $time);
             end
         end

@@ -47,6 +47,31 @@ of those boundaries is argued in the reports rather than left implicit.
 
 ## The contract
 
+The yardstick is not "how large is the error" but **"does the error follow a rule"**. Can a deviation
+be stated in one sentence with no "usually" or "in most cases", such that a user can decide whether
+it affects them? If yes it is a trade-off; if no it is a defect. Flushing subnormals to zero is a
+100% relative error inside that interval and is perfectly acceptable, because it is a rule with a
+clean boundary. "Some inputs happen to be off by a little" is not acceptable at any magnitude.
+
+Promises are tiered, and the order is the priority order:
+
+- **Tier A, non-negotiable** — correct rounding in the supported domain; bit-identical to libgcc on
+  the common domain; a true ordering from the comparator; no garbage on special values; anything
+  checkable at elaboration must be checked at elaboration; **every accuracy number in the
+  documentation must have a verified provenance**.
+- **Tier B, declared deviations** — the flush-to-zero rules, the tininess detection point, one
+  rounding mode only, no exception flags, an error budget per approximate primitive, no fused
+  multiply-add, and the accumulator inequality above.
+- **Tier C, PPA** — after the first two.
+
+The full list lives in [`rtl/datapath-manual.md`](rtl/datapath-manual.md) §11.
+
+To be honest about it: **these tiers were written after the fact**, not before the first line of RTL.
+Auditing the directory against them turned up two places where an unachieved accuracy figure had been
+printed in the documentation, two regression scripts that always exited successfully, and the
+carry-save claim above. Getting that order backwards costs real rework, which is why the tiers now
+open chapter 01 rather than trailing the series as an appendix.
+
 On the scalar side, `FMUL`, `FADD` and `FSUB` are bit-identical to IEEE-754 binary32
 round-to-nearest-even under FTZ semantics, over 450k random vectors at 0 ULP. `FCMP` returns three
 states, less / equal / greater plus unordered, not a boolean; six predicates share one opcode and a
@@ -56,14 +81,33 @@ correctly-rounded quotient. Subnormals flush to zero with the sign preserved, co
 cases. Every latency in the table is measured and asserted, never derived from stage count.
 
 On the accumulator side, a term entering the window is right-shifted onto a common scale, so
-information can be lost in five places. Three are bounded below 2⁻⁴⁰ ULP, provably out of reach of
-the result's last bit, and confirmed by a sharper test: breaking those paths in the golden model
-changes no output bit at all. One costs a deterministic 1 ULP when the shifted-out bits carry the
-round decision. Fixing that one measured +194 LUT (+15.2%), exactly cancelling the area this project
-recovered, and a boolean sticky bit cannot recover the sign of the discarded residue, so the fix is
-not unconditionally correct either. It is documented instead. The fifth path is catastrophic
-cancellation after an anchor reset; every finite-length accumulator that tracks the largest term has
-it, and it is stated as out of contract rather than hidden.
+information can be lost in five places. Three are covered by a computable bound: writing `A = Σ|tᵢ|`
+for the sum of absolute inputs, `S` for the exact sum and `Z` for the window value before the final
+rounding,
+
+```
+|Z − S| < 2⁻⁴⁶ · A          the contract asks for 2⁻³² · A, so 14 bits of headroom
+```
+
+The bound uses only the anchor invariant and assumes nothing about "how many guard bits there are",
+which matters for the fifth path below. It is confirmed by a sharper test as well: breaking those
+paths in the golden model changes no output bit at all.
+
+> An earlier version of this section claimed "bounded below 2⁻⁴⁰ ULP". That derivation assumed the
+> largest term's alignment shift is always 8, hence a fixed 24 guard bits below it. The anchor is
+> raised in 16-bit quanta, so the shift reaches 23 and as few as 9 guard bits remain. **The
+> conclusion held; the reasoning behind it did not** — and a wrong derivation under a right
+> conclusion is the harder of the two to find, because users reason with the derivation, not the
+> conclusion.
+
+One path costs a deterministic 1 ULP when the shifted-out bits carry the round decision. Fixing it
+measured +194 LUT (+15.2%), exactly cancelling the area this project recovered, and a boolean sticky
+bit cannot recover the sign of the discarded residue, so the fix is not unconditionally correct
+either. It is documented instead. The fifth path is catastrophic cancellation after an anchor reset;
+every finite-length accumulator that tracks the largest term has it. It is **not** excused by a
+disclaimer: the inequality above still holds, because `A` does not shrink when `S` does. A runtime
+bit, `mac_prec`, reports exactly this event per tile — and only this event, since a signal whose
+false-positive rate approaches one carries no information.
 
 ![design space](docs/figures/fig-designspace.svg)
 
@@ -110,8 +154,16 @@ zero-logic hop", because slack moves with placement and path shape does not.
 | Truncate instead of GRS rounding | systematic bias | no |
 | Split the shared barrel shifter | +28 LUT | no, sharing is correct |
 | Sticky bit for the 1-ULP case | +194 LUT, not unconditionally correct | no, documented instead |
-| Carry-save accumulator in the loop | bit-identical, no gain | no |
+| Carry-save accumulator in the loop | +24.4% LUT, +22% FF, and **not** bit-identical | withdrawn, blocked at elaboration |
 | Split the 597-line MAC by pipeline stage | area flat, interface complexity up | only the simulation-only assertions were lifted out |
+
+The carry-save row is worth reading twice, because it was wrong for a while. It used to read
+"bit-identical, no gain" — and a regression configuration tested exactly that claim, and stayed
+green. Switching the stimulus to one that cancels, 10 of 64 cases differ: when the anchor is raised,
+the two components are each shifted and truncated separately, which is not the same as truncating
+their sum. The check was not broken; it faithfully compared the stimulus it was handed. What was
+missing was any rule about **what stimulus that claim had to be verified against**. That single
+finding is what produced the tiered contract below.
 
 ## Running it
 
@@ -128,8 +180,14 @@ cd syn && vivado -mode batch -source ooc_mac.tcl -tclargs base
 
 ## Status
 
-The last area-recovery pass is simulation- and synthesis-verified but has not been run on board yet.
-The scalar path and earlier MAC revisions were. There is no CI. `fp32_fpu_top` inherits its opcode
+The last two passes — area recovery and the contract audit — are simulation- and synthesis-verified
+(timing fully MET, bitstream produced) but have not been run on board yet. The scalar path and
+earlier MAC revisions were. Chip-level worst-case hold slack moved from 0.024 to 0.019 ns across the
+audit pass; the path shape did not change at all, only the placement did, so that pass cannot claim
+to be free — only that the cost is not in that path's logic.
+
+There is no CI, though both entry scripts now propagate failures as a non-zero exit code and every
+check is a counting check, so wiring one up is straightforward. `fp32_fpu_top` inherits its opcode
 encoding from the host SoC (`rtl/lacc_defs.vh`), one header to change if you attach a different core.
 The 12 engineering reports are in Chinese; this file is the English summary. Port-level reference:
 [`rtl/datapath-manual.md`](rtl/datapath-manual.md).
@@ -146,7 +204,8 @@ FPGA design space was mapped by de Dinechin and colleagues
 [Floating-Point Accumulation and Sum of Products](https://doi.org/10.1007/978-3-031-42808-1_21)).
 
 What is contributed here is the balance. Those parts are re-proportioned for a blocking coprocessor,
-with latency first, unit cost measured on board and the contract written before the code. The
+with latency first, unit cost measured on board, and the contract written down explicitly — late,
+as the section above admits, but written down. The
 accumulation line is truncated into an anchored 88-bit window inside a one-cycle feedback loop, fused
 with an unrounded multiplier, and the cost of that truncation is measured, written as a contract and
 defended with mutation tests. The negative results are published alongside the positive ones.

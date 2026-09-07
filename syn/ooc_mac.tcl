@@ -1,6 +1,6 @@
 # 单条 lane 的 PPA 快照。改 fp32_mac_unit 之后拿它做前后对照。
 #
-# 用法（在 Main/fpga/ooc/ 下）：
+# 用法（在 syn/ 下）：
 #   <Vivado>/bin/vivado.bat -mode batch -source ooc_mac.tcl -tclargs <标签> [参数...]
 #   参数依次是 WinUp WinFrac UseCarrySave FuseMul，缺省 8 8 0 1
 #

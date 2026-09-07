@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fp32_mac_unit 定点窗口的误差归因与定向反例。Todo 的刀 A 与刀 D。
+"""fp32_mac_unit 定点窗口的误差归因与定向反例。Todo 的工作点 A 与工作点 D。
 
 这一份回答的不是「误差有多大」，而是「误差从哪来」。
 现有随机集相对无限精度参考的最大 ULP 是 0，但那只证明随机激励没打到边界，
@@ -19,8 +19,8 @@
   vectors <类> <文件>   生成一类定向向量，格式与 gen_dot_vectors.py 相同，
                         tb_mac_win 直接吃，用来证明 RTL 与模型在这一类上逐位相同
   audit                 五类各跑一遍，报归因计数与 ULP，判定每类是否命中
-  ktrend                刀 D：K=64/128/256/512 分 tile 扫描，报 maxULP/P99/非零比例
-  bound                 对齐丢位的误差上界：把理论界与实测最坏值放在一起
+  ktrend                工作点 D：K=64/128/256/512 分 tile 扫描，报 maxULP/P99/非零比例
+  bound                 舍入前的误差界：独立大整数模型逐前缀检查三条不等式
 
 判定口径见各子命令的注释。判据自身的注错见红由 run_mac_audit.sh 负责。
 """
@@ -30,7 +30,7 @@ import sys
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0] if "/" in __file__ else ".")
 from mac_win_model import (win_dot, exact_dot, ulp_gap, new_stats,   # noqa: E402
-                           geom, f2b, b2f)
+                           geom, f2b, b2f, WIN_UP, WIN_G)
 
 TW, ACCW = geom()
 ONE = 0x3F800000            # 1.0f，定向向量一律用 x * 1.0 把乘积钉成 x 本身
@@ -173,7 +173,7 @@ TINY = fp(0, 1, 0)           # 接近 FP32 下限
 
 
 def vec_spec(rng=None, n=None):
-    """刀 E：把 fp.md 第 5.2 节写下的每一条数值契约摆成一条定向用例。
+    """工作点 E：把 fp.md 第 5.2 节写下的每一条数值契约摆成一条定向用例。
 
     这一类不查精度，查的是「文档说的和硬件做的是不是同一件事」。
     每条用例后面的注释就是它对应的契约原文，改契约必须同时改这里，
@@ -263,7 +263,7 @@ def emit(case, path, seed=20260906, inject=None):
     """写出 tb_mac_win 能吃的向量文件。exp 字段是逐位金标准，按块串 psum。
 
     inject 非空时，exp 由被注错的金标准算出，而 RTL 一字未改，
-    于是 tb_mac_win 必须当场报 bad > 0。这是这五类判据自己的守门人：
+    于是 tb_mac_win 必须当场报 bad > 0。这是这五类判据自己的判据：
     判据抓不住金标准里的错，就更抓不住 RTL 里的错。
     向量本身（psum 与 a/b）与不注入时逐字节相同，变的只有期望值。
     """
@@ -318,8 +318,13 @@ def cmd_audit(seed=20260906):
     它是设计的固有代价，判据要求它确实大，才能证明这条反例是活的。
     """
     bad = 0
-    print("==== fp32_mac_unit 窗口误差归因（刀 A） ====")
-    print("  TW=%d AccW=%d，最大项 LSB 之下的保护位 = %d 位" % (TW, ACCW, TW - 48 - 8))
+    print("==== fp32_mac_unit 窗口误差归因（工作点 A） ====")
+    # 保护位不是一个定值：基准按 WIN_G 的量子上抬，最大项的 sh 落在
+    # [WIN_UP, WIN_UP+WIN_G-1]，保护位随之在一个区间里，最坏取下界。
+    # 这里曾按 sh 恒为 WIN_UP 打印单个数，那是 bound 报告证伪掉的那条前提。
+    print("  TW=%d AccW=%d，最大项 LSB 之下的保护位 = %d 到 %d 位（最坏 %d）"
+          % (TW, ACCW, TW - 48 - (WIN_UP + WIN_G - 1), TW - 48 - WIN_UP,
+             TW - 48 - (WIN_UP + WIN_G - 1)))
     for case in ("halfway", "tiny", "mirror", "cancel", "xtile"):
         st, ulps, res = run_case(case, seed)
         key = CASES[case][1]
@@ -336,13 +341,13 @@ def cmd_audit(seed=20260906):
         elif case == "halfway":
             ok_ulp, want = mx <= 1, "<= 1（丢 sticky 最多差一个 ULP）"
         else:
-            ok_ulp, want = mx == 0, "== 0（理论界 2^-40 ULP，不可观测）"
+            ok_ulp, want = mx == 0, "== 0（误差在 2^-46 * A 以下，见 bound 报告）"
         ok = hot > 0 and ok_ulp
         bad += 0 if ok else 1
         print("  %-8s %-28s %s=%-6d maxULP=%-10d P99=%-8d 非零=%d/%d  期望 %s -> %s"
               % (case, CASES[case][3], key, hot, mx, p99, nz, len(ulps),
                  want, "PASS" if ok else "FAIL"))
-    # 刀 E：契约枚举单独对账。这一类不比 ULP，比的是每条用例落在哪个契约档上
+    # 工作点 E：契约枚举单独对账。这一类不比 ULP，比的是每条用例落在哪个契约档上
     _, _, sres = run_case("spec", seed)
     want = spec_expect()
     miss = [(i, sres[i], want[i]) for i in range(len(want)) if sres[i] != want[i]]
@@ -364,7 +369,7 @@ def cmd_audit(seed=20260906):
     return bad
 
 
-# 刀 D 的验收界。这不是理论界：分块求和的误差正比于条件数
+# 工作点 D 的验收界。这不是理论界：分块求和的误差正比于条件数
 # sum|x| / |sum x|，条件数无界，所以任何只按块数写的界都是错的。
 # 下面这一行是 2026-09-06 在 seed=20260906、nt=200、指数跨度 118..124 这组
 # 激励上实测出来的最大值，再留一倍余量当回归闸门用：
@@ -373,7 +378,7 @@ KTREND_GATE = {64: 0, 128: 16, 256: 32, 512: 200}
 
 
 def cmd_ktrend(seed=20260906, nt=200):
-    """刀 D：跨 tile 回灌的代价随 K 怎么走。
+    """工作点 D：跨 tile 回灌的代价随 K 怎么走。
 
     tile 深度恒为 64（GEMM_TILE_COLS），K 变大就是块数变多。
     参考层恒取整段无限精度，所以量到的就是分块本身的代价。
@@ -386,7 +391,7 @@ def cmd_ktrend(seed=20260906, nt=200):
     from mac_win_model import ieee_dot
     from fractions import Fraction
     bad = 0
-    print("==== 跨 tile 回灌的误差随 K（刀 D） ====")
+    print("==== 跨 tile 回灌的误差随 K（工作点 D） ====")
     print("  tile 深度恒 64，参考层是整段无限精度点积；闸门是实测基线加余量，不是理论界")
     for K in (64, 128, 256, 512):
         rng = random.Random(seed + K)
@@ -425,36 +430,125 @@ def cmd_ktrend(seed=20260906, nt=200):
     return bad
 
 
-def cmd_bound(seed=20260906, nt=400):
-    """对齐丢位的误差上界，理论与实测放在一起。
+def _wb_term(x):
+    """FP32 位型 -> (符号, 48 位尾数, 阶码)。非正规与特殊值不进定点累加器"""
+    e = (x >> 23) & 255
+    if e in (0, 255):
+        return None
+    return (-1 if x >> 31 else 1, ((1 << 23) | (x & 0x7FFFFF)) << 24, e - 1)
 
-    理论：一项被对齐右移丢掉的位全部落在窗口 LSB 以下，
-    所以单项丢失量严格小于一个窗口 LSB；一个 tile 最多 255 项（C5 断言），
-    累计丢失量小于 255 个 LSB。而结果的 ULP 落在窗口第 48 位上
-    （最大项 sh 恒为 WinUp=8 时，mant48 占 [71:24]，24 位有效数字到第 48 位），
-    所以对齐丢位的累计误差上界是 255 / 2^48 个 ULP，即 2^-40 量级。
 
-    这条界说明第 1 类在无抵消场景下不可观测，随机集测出 0 ULP 不是运气。
-    实测部分用最不利的激励去够这个界：全部小项同号，尽量把丢位堆在同一边。
+def _wb_product(a, b):
+    ea, eb = (a >> 23) & 255, (b >> 23) & 255
+    if ea in (0, 255) or eb in (0, 255):
+        return None
+    return (-1 if (a ^ b) >> 31 else 1,
+            ((1 << 23) | (a & 0x7FFFFF)) * ((1 << 23) | (b & 0x7FFFFF)),
+            ea + eb - 127)
+
+
+def cmd_bound(seed=20260906, nt=2000):
+    """窗口累加在舍入之前的误差界，逐前缀检查。
+
+    契约（doc/fp.md B 档）：对有限项 S = sum(t_i)、A = sum(|t_i|)，
+    要求 |Z - S| <= 2^-32 * A，Z 是末项舍入之前的窗口累加值。
+
+    推导：窗口最低位的实数权重 lambda = 2^(B-205)。基准的不变式给出
+    Emax + WinUp <= B <= Emax + WinUp + WinG - 1，于是 lambda <= 2^-55 * M
+    （M 是最大项的绝对值）。每项对齐丢位与每次换基各引入不超过一个 lambda，
+    N 项合计 |Z - S| < 2N * lambda <= 2^-46 * M <= 2^-46 * A，
+    相对契约要求的 2^-32 还有 14 位余量。
+
+    要点是本函数**不调用本目录的逐位模型**，用独立的大整数实现从头再算一遍。
+    两层共用一份代码，就不可能靠「两层都过」发现那份代码本身的问题。
+
+    原来这里写的是「最大项的 sh 恒为 WinUp = 8，所以累计误差 2^-40 个 ULP」。
+    那条推导是错的：基准按 WinG = 16 的量子上抬，sh 最大取到 23；而且它默认
+    结果的 ULP 落在窗口第 48 位，抵消时并不成立。
     """
     rng = random.Random(seed)
-    worst = 0
-    for _ in range(nt):
-        em = rng.randint(80, 170)
-        ab = [fp(0, em, rng.getrandbits(23)), ONE]
-        for _ in range(254):
-            # 同号、尾数全 1、指数刚跨过丢位门槛：单项丢的位最多
-            ab += [fp(0, em - 33, 0x7FFFFF), ONE]
-        r, _ = win_dot(0, ab)
-        worst = max(worst, ulp_gap(r, exact_dot(0, ab)))
-    lim = 1
-    ok = worst <= lim
-    print("==== 对齐丢位的误差界（刀 C 的裁决依据） ====")
-    print("  理论上界 255 个窗口 LSB / 2^48 每 ULP = 2^-40 ULP，数值上不可观测")
-    print("  实测最不利激励 254 个同号小项 x %d 组：maxULP=%d，上界 %d -> %s"
-          % (nt, worst, lim, "PASS" if ok else "FAIL"))
-    print("SUMMARY mac_align_bound: maxULP=%d -> %s"
-          % (worst, "PASS" if ok else "FAIL"))
+    cases = rescales = clears = 0
+    max_sh = 0
+    worst_local = 0.0        # max |Z-S| / (2N * lambda)，理论界是 1
+    worst_budget = 0.0       # max |Z-S| * 2^32 / A，契约界是 1
+    fails = []
+
+    def check(ps, ab):
+        nonlocal cases, rescales, clears, max_sh, worst_local, worst_budget
+        terms = [t for t in [_wb_term(ps)] +
+                 [_wb_product(ab[i], ab[i + 1]) for i in range(0, len(ab), 2)]
+                 if t is not None]
+        if not terms:
+            return
+        acc = 0
+        base = None
+        ideal = 0
+        absolute = 0
+        maxmag = 0
+        for n, (sg, m, e) in enumerate(terms, 1):
+            need = e + 8 - base if base is not None else 0
+            if base is None:
+                base = e + 8
+            elif need > 87:
+                base = e + 8
+                acc = 0
+                clears += 1
+            elif need > 0:
+                shift = ((need + 15) // 16) * 16
+                base += shift
+                acc = 0 if shift >= 88 else acc >> shift
+                rescales += 1
+            sh = base - e
+            acc += sg * ((m << 32) >> sh)
+            if not -(1 << 87) <= acc < (1 << 87):
+                fails.append("累加器溢出")
+            value = sg * (m << (e + 227))
+            ideal += value
+            absolute += abs(value)
+            maxmag = max(maxmag, abs(value))
+            lam = 1 << (base + 195)
+            error = abs(acc * lam - ideal)
+            if error >= 2 * n * lam:
+                fails.append("逐项截断界不成立")
+            if (lam << 55) > maxmag:
+                fails.append("lambda <= 2^-55 * M 不成立")
+            if (error << 32) > absolute:
+                fails.append("契约界 2^-32 * A 不成立")
+            max_sh = max(max_sh, base - max(t[2] for t in terms[:n]))
+            worst_local = max(worst_local, error / (2 * n * lam))
+            if absolute:
+                worst_budget = max(worst_budget, (error << 32) / absolute)
+        cases += 1
+
+    # 五类定向反例先走一遍，它们才是最不利的形状
+    for name in ("halfway", "tiny", "mirror", "cancel", "xtile"):
+        vs, _klen, _kdep = build(name)
+        for ps, ab in vs:
+            check(ps, ab)
+
+    for i in range(nt):
+        k = (1, 4, 64, 128, 254)[i % 5]
+        ab = []
+        for _ in range(k):
+            ab.append((rng.getrandbits(1) << 31) | (rng.randint(1, 254) << 23)
+                      | rng.getrandbits(23))
+            ab.append((rng.getrandbits(1) << 31) | (rng.randint(1, 254) << 23)
+                      | rng.getrandbits(23))
+        ps = (rng.getrandbits(1) << 31) | (rng.randint(1, 254) << 23) | rng.getrandbits(23)
+        check(ps, ab)
+
+    ok = not fails
+    print("==== 窗口累加在舍入之前的误差界 ====")
+    print("  独立大整数模型，逐前缀检查；不调用本目录的逐位模型")
+    print("  %d 组，换基 %d 次，清空 %d 次，最大项的 sh 实测最大 %d（不是恒为 8）"
+          % (cases, rescales, clears, max_sh))
+    print("  |Z-S| / (2N*lambda) 实测最大 %.6g，理论界 1" % worst_local)
+    print("  |Z-S| * 2^32 / A    实测最大 %.6g，契约界 1" % worst_budget)
+    if fails:
+        for f in sorted(set(fails)):
+            print("  不成立：%s" % f)
+    print("SUMMARY mac_window_bound: %d 组逐前缀检查, %d 条不等式不成立 -> %s"
+          % (cases, len(set(fails)), "PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
 

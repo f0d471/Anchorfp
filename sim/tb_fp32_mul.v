@@ -91,6 +91,12 @@ module tb_fp32_mul;
         $display("off >1 ULP = %0d", ulpgt1);
         $display("DUT<golden = %0d  (偏低占比 %0d%%)", low_cnt, (low_cnt*100)/total);
         $display("max ULP    = %0d", maxulp);
+        if (total != count)
+            $display("HAS FAILURES: 出队 %0d 条 != 喂入 %0d 条（valid 链错位）", total, count);
+        else if (exact == total)
+            $display("ALL PASS (%0d/%0d 逐位相同)", exact, total);
+        else
+            $display("HAS FAILURES (%0d/%0d 不符, max ULP %0d)", total-exact, total, maxulp);
         $finish;
     end
 endmodule

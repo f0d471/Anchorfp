@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fp32_mac_unit 定点窗口的精度闭环。Todo fp32-mac-window-accuracy-closure.md 的
-# 刀 A（反例与归因）、刀 D（跨 tile 回灌）、刀 E（规格遵循）。
+# fp32_mac_unit 定点窗口的精度闭环。对应开发记录 docs/reports/11
+# 的反例与归因、跨 tile 回灌、规格遵循三项。
 #
 # 与 run_all.sh 的分工：那一份跑随机与四种模式的激励，回答「常规输入下对不对」；
 # 这一份跑五类定向反例，回答「窗口在边界上丢了什么、丢多少、哪一条该修」。
@@ -11,7 +11,7 @@
 #      判据抓不住金标准里的错，就更抓不住 RTL 里的错。
 #   三 误差归因、K 趋势、对齐丢位的误差界，三份报告。
 #
-# 用法：bash run_mac_audit.sh
+# 用法：bash run_mac_audit.sh；全绿返回 0，任何一条不过返回 1，可直接接门禁。
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FP="$(cd "$HERE/../rtl" && pwd)"
@@ -42,20 +42,12 @@ for c in halfway tiny mirror cancel xtile spec; do
     case "$line" in *"-> PASS"*) ;; *) BAD=$((BAD+1));; esac
 done
 
-# 二 注错见红。每个注入点配一类**能看见它**的向量。
-# 第一版这里踩了四个坑，四个都不是判据坏，是配错了向量：
-#   rescale_rtz 配 mirror  -> 不红。mirror 有 215 次负数换基，但丢的位在结果
-#                             ULP 之下 40 位，换个截断方向也照样看不见。
-#                             要看见它，得让换基之后发生抵消，低位重新主导
-#                             -> 改配 cancel，且 cancel 的旧和现在正负交替。
-#   clr_keep    配 cancel  -> 不红。原注入把旧和右移 AccW-1 位再留，
-#                             移完就是 0，与清空同结果 -> 改成原地不动。
-#   pack_trunc  配 halfway -> 不红。halfway 每条都精确卡在中点且尾数取偶，
-#                             RNE 向偶与截断都不进位 -> 改配 mirror，随机尾数才有进位。
-#   win_pad     配 tiny    -> 不红。tiny 丢的位本来就不可观测，加宽窗口也白加
-#                             -> 改配 halfway，那一类丢的正是决定进位的那一位。
-# 教训是一样的：注错见红只有在「这条路径的输出真的被观测得到」时才成立。
-# 前三个不红反过来是刀 C 的证据：那几条路径在无抵消时数值上摸不着。
+# 二 注错见红。每个注入点要配一类能观测到它的向量，配错向量则注错也不红：
+#   align_jam   配 halfway  丢的正是决定 RNE 进位的 sticky
+#   rescale_rtz 配 cancel   换基之后要发生抵消，低位才重新主导结果
+#   clr_keep    配 cancel   注入是让旧和原地不动，右移到底与清空同结果
+#   pack_trunc  配 mirror   随机尾数才有进位，halfway 取偶与截断都不进位
+#   win_pad     配 halfway  加宽窗口只在丢的那一位可观测时才看得出
 # 向量本身不变，只有期望值由被注错的金标准算出，所以红必须红在 bad 上。
 echo "==== 注错见红：金标准被改坏时上面那五条判据必须当场红 ===="
 inject_case() {
@@ -78,11 +70,42 @@ inject_case clr_keep    cancel
 inject_case pack_trunc  mirror
 inject_case win_pad     halfway
 
-# 三 三份报告。归因与 K 趋势各自带判定行
-echo "==== 误差归因与边界报告 ===="
-"$PY" "$HERE/mac_error_audit.py"        2>&1 | sed 's/^/  /'
-"$PY" "$HERE/mac_error_audit.py" ktrend 2>&1 | sed 's/^/  /'
-"$PY" "$HERE/mac_error_audit.py" bound  2>&1 | sed 's/^/  /'
+# 三 C5 的项数边界。上限 255 是 fp32_mac_assert.vh 认证的，非零 psum 也算一项，
+#    所以 K 项加 psum 等于 K+1 项。满额的合法 tile 不许报，超一项必须报，
+#    三个 tile 连跑是为了逼出「新 tile 沿用上个 tile 计数」那一类误报
+echo "==== C5 项数边界：满额不误报，超限必报 ===="
+c5_case() {                   # c5_case <K> <zero|nonzero> <说明>
+    local k=$1 want=$2 note=$3 line c5 ok
+    "$PY" "$HERE/gen_dot_vectors.py" "$k" 3 777 0 0 "$k" > "$OUT/vec_c5_$k.txt" 2>/dev/null
+    line=$(run_win "c5_$k" "$OUT/vec_c5_$k.txt" "$k" "$k")
+    c5=$(printf '%s' "$line" | sed -n 's/.*C1\.\.C5=[0-9]*,[0-9]*,[0-9]*,[0-9]*,\([0-9]*\).*/\1/p')
+    ok=0
+    if [ "$want" = zero ]    && [ "${c5:-x}" = "0" ];                       then ok=1; fi
+    if [ "$want" = nonzero ] && [ -n "$c5" ] && [ "$c5" -gt 0 ] 2>/dev/null; then ok=1; fi
+    if [ "$ok" = 1 ]; then
+        printf "  %-20s %s 项进窗口, C5=%s -> PASS\n" "$note" "$((k+1))" "${c5:-空}"
+    else
+        printf "  %-20s %s 项进窗口, C5=%s -> FAIL\n" "$note" "$((k+1))" "${c5:-空}"
+        BAD=$((BAD+1))
+    fi
+}
+c5_case 254 zero    "满额 tile"
+c5_case 255 nonzero "超一项"
 
-echo "SUMMARY run_mac_audit: 6 类逐位对拍 + 5 个注错见红, $BAD FAIL -> $([ $BAD -eq 0 ] && echo PASS || echo FAIL)"
-exit 0
+# 四 三份报告。每份的判定行与退出码都并进 BAD
+report() {                    # report <mac_error_audit.py 的参数...>
+    local out rc
+    out=$("$PY" "$HERE/mac_error_audit.py" "$@" 2>&1); rc=$?
+    printf '%s\n' "$out" | sed 's/^/  /'
+    if [ "$rc" -ne 0 ] || printf '%s' "$out" | grep -qE '\-> FAIL|Traceback'; then
+        BAD=$((BAD+1))
+    fi
+}
+
+echo "==== 误差归因与边界报告 ===="
+report
+report ktrend
+report bound
+
+echo "SUMMARY run_mac_audit: 6 类逐位对拍 + 5 个注错见红 + 2 档 C5 边界 + 3 份报告, $BAD FAIL -> $([ $BAD -eq 0 ] && echo PASS || echo FAIL)"
+[ "$BAD" -eq 0 ]

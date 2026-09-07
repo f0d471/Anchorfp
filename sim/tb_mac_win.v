@@ -15,8 +15,8 @@
 // -DVECF="..." 选向量文件，-DKLEN=n 选点积长度，
 // -DKDEP=n 选一个 tile 的累加深度（KDEP < KLEN 时按块喂，块间经 FP32 回灌串 psum）。
 //
-// 运行：iverilog -g2012 -I../../rtl/ip/fp -o /tmp/m.vvp tb_mac_win.v \
-//         ../../rtl/ip/fp/fp32_mac_unit.v ../../rtl/ip/fp/fp32_mul_pipe.v \
+// 运行：iverilog -g2012 -I../rtl -o /tmp/m.vvp tb_mac_win.v \
+//         ../rtl/fp32_mac_unit.v ../rtl/fp32_mul_pipe.v \
 //       && vvp /tmp/m.vvp
 `ifndef VECF
   `define VECF "vectors_dot.txt"
@@ -28,6 +28,7 @@
   `define TAGNAME "tb_mac_win"
 `endif
 
+// CSA = 1 已不在支持集合内，传 1 会在例化期就报错，见 fp32_mac_unit 的 NOTE 8
 `ifndef CSA
   `define CSA 0
 `endif
