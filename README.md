@@ -2,7 +2,7 @@
 
 # Anchorfp
 
-给 FPGA 边缘加速器用的一套 FP32 数据通路：六条标量运算，加一个点积累加器。
+给 FPGA 边缘加速器用的一套 FP32 数据通路：六条标量运算，加一个点积累加器
 
 [![RTL](https://img.shields.io/badge/RTL-Verilog--2001-1f6feb)](rtl/)
 [![target](https://img.shields.io/badge/target-Artix--7%20xc7a200t%20%40%2050%20MHz-555555)](docs/reports/)
@@ -489,7 +489,6 @@ posit 的 quire 是同一思想的标准化。
 
 ## 11. 许可证
 
-[Solderpad Hardware License v2.1](LICENSE)，Apache-2.0 的硬件变体，
-也可按你的选择直接当 Apache-2.0 使用。cvfpu、lowRISC、PULP 用的都是它。
+[Solderpad Hardware License v2.1](LICENSE)
 
 SPDX 标识：`Apache-2.0 WITH SHL-2.1`

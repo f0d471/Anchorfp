@@ -2,7 +2,7 @@
 
 # Anchorfp
 
-An FP32 datapath for FPGA edge accelerators: six scalar operations, plus a dot-product accumulator.
+An FP32 datapath for FPGA edge accelerators: six scalar operations, plus a dot-product accumulator
 
 [![RTL](https://img.shields.io/badge/RTL-Verilog--2001-1f6feb)](rtl/)
 [![target](https://img.shields.io/badge/target-Artix--7%20xc7a200t%20%40%2050%20MHz-555555)](docs/reports/)
@@ -241,7 +241,6 @@ reference: [`rtl/datapath-manual.md`](rtl/datapath-manual.md).
 
 ## License
 
-[Solderpad Hardware License v2.1](LICENSE), the hardware variant of Apache-2.0, which you may also
-treat as plain Apache-2.0 at your option. It is what cvfpu, lowRISC and PULP use.
+[Solderpad Hardware License v2.1](LICENSE)
 
 SPDX identifier: `Apache-2.0 WITH SHL-2.1`
