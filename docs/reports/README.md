@@ -83,7 +83,7 @@
 仿真回归，入口 `bash sim/run_all.sh`：
 
 ```
-==== anchorfp sim：FP32 计算单元 vs IEEE 金标准 ====
+==== Anchorfp sim：FP32 计算单元 vs IEEE 金标准 ====
   tb_fp32_add        exact(0ULP)= 250000  (100%)
   tb_fp32_mul        exact(0ULP)= 200000  (100%)
   tb_fp32_mul_r      定向(右移粘滞位) 9 组: 0 FAIL

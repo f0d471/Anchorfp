@@ -41,7 +41,7 @@ run() {                       # run <tb名> <运行目录> <源文件...>；DEFS
     fi
 }
 
-echo "==== anchorfp sim：FP32 计算单元 vs IEEE 金标准 ===="
+echo "==== Anchorfp sim：FP32 计算单元 vs IEEE 金标准 ===="
 run tb_fp32_add    "$HERE" "$FP/fp32_add.v"
 run tb_fp32_mul    "$HERE" "$FP/fp32_mul_pipe.v"
 run tb_fp32_mul_r  "$HERE" "$FP/fp32_mul_pipe.v"

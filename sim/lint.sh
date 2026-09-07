@@ -29,7 +29,7 @@ check() {                      # check <顶层> <源文件...>
     fi
 }
 
-echo "==== anchorfp lint：$($VL --version 2>/dev/null) ===="
+echo "==== Anchorfp lint：$($VL --version 2>/dev/null) ===="
 check fp32_add       "$RTL/fp32_add.v"
 check fp32_mul_pipe  "$RTL/fp32_mul_pipe.v"
 check fp32_cmp       "$RTL/fp32_cmp.v"

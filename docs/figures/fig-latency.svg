@@ -27,7 +27,7 @@
   <rect class="b2" x="628" y="32" width="11" height="11" rx="2"/>
   <text class="t2" x="645" y="42">libgcc soft float</text>
   <rect class="b1" x="758" y="32" width="11" height="11" rx="2"/>
-  <text class="t2" x="775" y="42">anchorfp</text>
+  <text class="t2" x="775" y="42">Anchorfp</text>
 </g>
 
 <g class="grid">

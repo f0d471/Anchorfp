@@ -1,6 +1,6 @@
 <div align="center">
 
-# anchorfp
+# Anchorfp
 
 给 FPGA 边缘加速器用的一套 FP32 数据通路：六条标量运算，加一个点积累加器。
 
@@ -62,7 +62,7 @@
 | | 累加器 | 舍入频率 | 代价 |
 |---|---|---|---|
 | 通用 FPU（FPnew、HardFloat） | FP32 寄存器，24 位有效位 | 每一项 | 最省 |
-| anchorfp | 88 位定点窗口，基准动态 | 每块一次 | 每 lane 1047 LUT / 489 FF + DSP |
+| Anchorfp | 88 位定点窗口，基准动态 | 每块一次 | 每 lane 1047 LUT / 489 FF + DSP |
 | 精确累加（Kulisch / posit quire） | 555 位，覆盖全指数范围 | 全程不舍入 | 窗口的 6.3 倍 |
 
 555 位这个数是算出来的：FTZ 语义下最小乘积是 2⁻²⁵²，它的最低有效位落在 2⁻²⁹⁹，
@@ -172,7 +172,7 @@ FTZ 是硬件入口的语义。亚正规数在软件模拟里要走一条昂贵�
 
 一块算完，部分和转回 FP32 再进下一块，转一次舍一次。这笔账属于分块接口，不属于累加器：
 
-| K | 块数 | anchorfp | 逐项舍入的同序 FP32 |
+| K | 块数 | Anchorfp | 逐项舍入的同序 FP32 |
 |---:|---:|---:|---:|
 | 64 | 1 | 0 | 339 |
 | 128 | 2 | 8 | 85 |
@@ -251,7 +251,7 @@ op 编码在 `rtl/fp32_ops.vh`，只有域宽和六条运算的编号。
 
 ![accuracy](docs/figures/fig-accuracy.svg)
 
-| 激励 | anchorfp 窗口 | 逐项舍入的同序 FP32 |
+| 激励 | Anchorfp 窗口 | 逐项舍入的同序 FP32 |
 |---|---:|---:|
 | 常规 | 0 | 1168 |
 | 极小值（FTZ 与窗口下方截断） | 0 | 164 |
@@ -386,7 +386,7 @@ hold 违例只有两类修法，给数据插延迟或者调时钟相位，这次
 
 ```bash
 # 依赖：iverilog >= 12、gcc、python3；lint 需要 verilator；综合需要 Vivado
-git clone https://github.com/f0d471/anchorfp.git && cd anchorfp
+git clone https://github.com/f0d471/Anchorfp.git && cd Anchorfp
 
 bash sim/gen_vectors.sh      # 生成金标准向量（派生数据，不入库）
 bash sim/run_all.sh          # 全量回归：六个单元逐位对拍 + MAC 六档
@@ -400,7 +400,7 @@ cd syn && vivado -mode batch -source ooc_mac.tcl -tclargs base
 `run_all.sh` 的期望输出：
 
 ```
-==== anchorfp sim：FP32 计算单元 vs IEEE 金标准 ====
+==== Anchorfp sim：FP32 计算单元 vs IEEE 金标准 ====
   tb_fp32_add        exact(0ULP)= 250000  (100%)
   tb_fp32_mul        exact(0ULP)= 200000  (100%)
   tb_fp32_cmp        tb_fp32_cmp: 32 PASS, 0 FAIL
@@ -449,7 +449,7 @@ docs/
 | [Berkeley HardFloat](http://www.jhauser.us/arithmetic/HardFloat.html) | Verilog（Chisel 生成） | 指数/尾数位宽可配 | 逐项舍入 | 支持 | IEEE 合规参考实现 |
 | [FloPoCo](https://flopoco.org/) | C++ 生成 VHDL | 任意精度算子生成器 | 含精确累加器算子 | 视算子 | FPGA 专用算术生成器 |
 | Xilinx Floating-Point Operator | 闭源 IP | FP32/64 | 逐项舍入 | 可配 | 厂商 IP |
-| anchorfp | Verilog-2001 | 只有 FP32，只有 FTZ | 每块一次 | FTZ | 边缘加速器旁的标量 FP + 点积通路 |
+| Anchorfp | Verilog-2001 | 只有 FP32，只有 FTZ | 每块一次 | FTZ | 边缘加速器旁的标量 FP + 点积通路 |
 
 新在哪、不新在哪，分开说。
 

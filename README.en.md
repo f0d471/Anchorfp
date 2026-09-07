@@ -1,6 +1,6 @@
 <div align="center">
 
-# anchorfp
+# Anchorfp
 
 An FP32 datapath for FPGA edge accelerators: six scalar operations, plus a dot-product accumulator.
 
@@ -203,7 +203,7 @@ from a failure count, and each has been mutation-tested.
 
 ```bash
 # needs iverilog >= 12, gcc, python3; verilator for lint, Vivado for synthesis
-git clone https://github.com/f0d471/anchorfp.git && cd anchorfp
+git clone https://github.com/f0d471/Anchorfp.git && cd Anchorfp
 
 bash sim/gen_vectors.sh      # golden vectors (derived data, not committed)
 bash sim/run_all.sh          # unit regression plus six MAC configurations

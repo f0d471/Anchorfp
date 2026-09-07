@@ -63,7 +63,7 @@
 <!-- middle card, the design point -->
 <rect class="cardsel" x="283" y="176" width="230" height="150" rx="8"/>
 <rect class="badge" x="283" y="176" width="230" height="4" rx="2"/>
-<text class="t1" x="299" y="202" font-size="13" font-weight="600">anchorfp: windowed</text>
+<text class="t1" x="299" y="202" font-size="13" font-weight="600">Anchorfp: windowed</text>
 <text class="t2" x="299" y="224" font-size="11.5">Fixed-point window whose anchor</text>
 <text class="t2" x="299" y="241" font-size="11.5">follows the largest term. One</text>
 <text class="t2" x="299" y="258" font-size="11.5">rounding per tile, II = 1.</text>
