@@ -1,23 +1,18 @@
 `timescale 1ns/1ps
 `include "fp32_lat.vh"
 
-// 验证 fp32_mac_unit 的定点窗口累加 vs 逐位金标准（mac_win_model.py 的第一层）。
+//==============================================================================================//
+// TB: tb_mac_win
 //
-// 每拍喂一个积（环长 1 拍，FP32_MAC_PACE = 1），acc_load 与首项同拍载入 psum，
-// last 标末项。四条判定合成一行 SUMMARY：
-//   结果逐位相同、末项到 out_valid 的拍数恒定、抬基准标志与金标准一致、
-//   模块内五条契约断言全程零计数。
+// DESCRIPTION: fp32_mac_unit 的定点窗口累加与逐位金标准（mac_win_model 第一层）对拍。
 //
-// 本 TB 取代 tb_mac_paced：那一份比的是「同序 IEEE 点积」，每一项各舍入一次，
-// 求和次序是金标准的一部分。定点窗口累加只在末项舍入一次，那套金标准整体失效，
-// NACC 这个维度也随交错累加器与归约树一并消失。
-//
-// -DVECF="..." 选向量文件，-DKLEN=n 选点积长度，
-// -DKDEP=n 选一个 tile 的累加深度（KDEP < KLEN 时按块喂，块间经 FP32 回灌串 psum）。
-//
-// 运行：iverilog -g2012 -I../rtl -o /tmp/m.vvp tb_mac_win.v \
-//         ../rtl/fp32_mac_unit.v ../rtl/fp32_mul_pipe.v \
-//       && vvp /tmp/m.vvp
+// NOTE:
+//   1. 每拍喂一个积，acc_load 与首项同拍载入 psum，last 标末项
+//   2. 一行 SUMMARY 合四条判定：结果逐位相同、末项到 out_valid 拍数恒定、
+//      抬基准标志与金标准一致、模块内五条契约断言全程零计数
+//   3. -DVECF 选向量文件，-DKLEN 选点积长度，-DKDEP 选一块的累加深度
+//      （KDEP < KLEN 时按块喂，块间经 FP32 回灌串 psum）
+//==============================================================================================//
 `ifndef VECF
   `define VECF "vectors_dot.txt"
 `endif

@@ -1,26 +1,10 @@
 #!/usr/bin/env python3
-"""生成 fp32_mac_unit 的点积向量与两层金标准。
+"""fp32_mac_unit 的点积激励生成器。
 
-取代原来的 gen_dot_vectors.c。换掉的理由有两条：
-  1. 累加器改成定点窗口之后，金标准不再是「同序 IEEE 点积」，
-     求和次序也不再是它的一部分（旧版的 nacc 参数随交错累加器一起作废）；
-  2. 第二层要无限精度参考，C 里没有；而窗口一旦宽过 128 位，__int128 也装不下。
-
-输出每个点积一行：
-  psum a0 b0 ... a(K-1) b(K-1) exp res
-其中 exp 是第一层（逐位）金标准，res 是「本 tile 抬过基准」的标志。
-
-同时把第二层的对账打到 stderr：新形态与无限精度参考的最大 ULP，
-以及旧形态（同序 IEEE，nacc=4）对同一参考的最大 ULP。两个数一起报，
-「误差不大于旧实现」这条验收才有意义。
-
-用法: gen_dot_vectors.py <K> <NT> [seed] [zero_psum] [mode] [kdep]
-  mode 0 常规    指数落在容易抵消与跨度较宽两档
-       1 极小    1/4 的元素落在 exp 0..8，逼出 FTZ 与窗口下方截断
-       2 特殊值  掺入 NaN / +-Inf / +-0 / Inf*0，逼出旁路通路
-       3 宽跨度  第一项极小、随后几项极大，必然逼出基准上调
+1. 按模式生成：常规 / 极小 / 特殊值 / 宽跨度，逐行输出 a_bits b_bits。
+2. fuse=0 与 fuse=1 用同一批向量，两档之差即融合乘加单独买到的精度。
+3. 向量是派生数据，不入库。
 """
-
 import random
 import sys
 
@@ -44,7 +28,7 @@ def main():
     zero_psum = int(av[4]) if len(av) > 4 else 0
     mode = int(av[5]) if len(av) > 5 else 0
     kdep = int(av[6]) if len(av) > 6 else K
-    # fuse=0 是工作点 E 的对照档：乘积侧仍按 IEEE 舍入一次再进窗口
+    # fuse=0 是对照档：乘积侧仍按 IEEE 舍入一次再进窗口
     fuse = bool(int(av[7])) if len(av) > 7 else True
     if kdep < 1 or K % kdep:
         sys.exit("kdep 必须整除 K")
@@ -98,7 +82,7 @@ def main():
         # 第二层对账只在单块时做：多块之间硬件本来就要经 FP32 回灌，
         # 那几次舍入不属于窗口的账
         # 参考层恒取原始 a,b 的无限精度点积（乘积也不舍入），
-        # 这样 fuse=0 与 fuse=1 是拿同一把尺子量的，工作点 E 的收益才看得见
+        # 这样 fuse=0 与 fuse=1 是拿同一把尺子量的，融合的收益才看得见
         if kdep == K and mode in (0, 1, 3):
             ex = exact_dot(psum, ab)
             max_ulp_win = max(max_ulp_win, ulp_gap(chain, ex))

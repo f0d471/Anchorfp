@@ -1,6 +1,6 @@
-/* gen_cvt_vectors.c —— fp32_cvt 的 IEEE 金标准向量（[#37] V1-D §3.2）
+/* gen_cvt_vectors.c —— fp32_cvt 的 IEEE 金标准向量
  *
- * 金标准对 C float/int 这个与设计无关的第三方（SOP §2），不与自己比。
+ * 金标准对 C float/int 这个与设计无关的第三方，不与自己比。
  * 输出格式（每行）：in mode unsigned expected   —— 全 %08x
  *   mode: 0=i2f, 1=f2i
  *

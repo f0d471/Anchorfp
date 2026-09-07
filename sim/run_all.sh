@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# FP32 真身的金标准回归。动了 rtl/ 里任何一个模块就跑它。
-#
-# 金标准向量由本目录的 gen_*_vectors.c 生成（用 PC 的 IEEE-754 当参照），
-# 已经生成好的 vectors_*.txt 就在本目录，不用重新生成。
-#
-# 用法：bash run_all.sh；全绿返回 0，任何一条判据不过返回 1，可直接接门禁。
-#
-# 注意 tb_fp32_recip 要读 recip_lut.mem，$readmemh 用的是裸文件名、按 CWD 找，
-# 所以它在放表的 rtl/ 目录里跑。
+# FP32 计算单元的金标准回归。动了 rtl/ 里任何一个模块就跑它。
+#   用法：bash run_all.sh；全绿返回 0，任何一条判据不过返回 1
+#   向量由 gen_*_vectors.c 生成，已生成的 vectors_*.txt 在本目录
+#   tb_fp32_recip 与 tb_fp_lat 读 recip_lut.mem，须在放表的 rtl/ 目录里跑
 
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

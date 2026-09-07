@@ -36,7 +36,7 @@ def geom(win_up=WIN_UP, win_g=WIN_G, win_frac=WIN_FRAC):
     return tw, tw + 8
 
 
-# 五类信息损失。名字与 Todo fp32-mac-window-accuracy-closure.md 的五条一一对应，
+# 五类信息损失。名字与手册第 5.2.2 节的五条一一对应，
 # 改名要同时改那一份，否则报告读不成对照
 STAT_KEYS = (
     "align_drop",     # 1 对齐右移丢掉了非零低位的项数

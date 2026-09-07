@@ -1,6 +1,6 @@
-/* gen_recip_vectors.c —— fp32_recip 的 IEEE 金标准向量（[#37] V1-D §3.3）
+/* gen_recip_vectors.c —— fp32_recip 的 IEEE 金标准向量
  *
- * 金标准对 C float 1/x 这个与设计无关的第三方（SOP §2），不与自己比。
+ * 金标准对 C float 1/x 这个与设计无关的第三方，不与自己比。
  * FTZ契约：denormal→±0→±Inf。
  *
  * 输出格式（每行）：a expected   —— 全 %08x

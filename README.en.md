@@ -8,8 +8,7 @@ An FP32 datapath for FPGA edge accelerators: six scalar operations, plus a dot-p
 [![target](https://img.shields.io/badge/target-Artix--7%20xc7a200t%20%40%2050%20MHz-555555)](docs/reports/)
 [![regression](https://img.shields.io/badge/regression-1.17M%20vectors-2ea043)](sim/)
 [![scalar](https://img.shields.io/badge/scalar%20add%2Fmul-0%20ULP-2ea043)](#results)
-[![workload](https://img.shields.io/badge/workload-−89.3%25-2ea043)](#results)
-[![license](https://img.shields.io/badge/license-TBD-lightgrey)](#license)
+[![license](https://img.shields.io/badge/license-SHL--2.1-lightgrey)](LICENSE)
 
 [中文版 README](README.md) · this is the short English version
 
@@ -17,24 +16,22 @@ An FP32 datapath for FPGA edge accelerators: six scalar operations, plus a dot-p
 
 ---
 
-A soft core with no FPU spends 131 cycles on an FP32 multiply and 82 on an add. With this datapath
-attached it spends 4.99 and 5.99, and the results are bit-identical to IEEE-754: 450k random vectors
-at 0 ULP. On board, the geometry stage of a 3D Gaussian splatting renderer drops from 10559 ms to
-1132 ms.
+Seven independently instantiable Verilog-2001 modules, plus a written contract stating what each
+one computes and to what accuracy. The six scalar operations are bit-identical to IEEE-754 under
+FTZ semantics, 450k random vectors at 0 ULP. The dot-product accumulator uses an 88-bit fixed-point
+window and does not round inside a block.
 
-There are two lines here. The scalar line is add, subtract, multiply, compare, convert and
-reciprocal. The pipelines are short because the coprocessor blocks: latency is the price of the
-instruction. The −89.3% figure above belongs entirely to this line; the accumulator is not on that
-path. The dot-product line is an 88-bit fixed-point window that does not round inside a tile. Matrix
+The two lines address different gaps. The scalar line covers "the control core has no FPU, so a
+single float multiply costs tens to hundreds of cycles". The dot-product line covers "matrix
 multiply, convolution and projection are all long dot products, and a general-purpose FPU rounds
-once per term.
+once per term, so error accumulates with length". Both share the same numeric contract and the same
+multiply and add units.
 
 ![architecture](docs/figures/fig-arch.svg)
 
 ## What it is, and is not
 
-FP32 only. Flush-to-zero only. No division, no square root, no FP64/FP16, no exception flags. Each
-of those boundaries is argued in the reports rather than left implicit.
+FP32 only. Flush-to-zero only. No division, no square root, no FP64/FP16, no exception flags.
 
 | Module | Role | Latency | Out-of-context area |
 |---|---|:--:|---|
@@ -43,47 +40,58 @@ of those boundaries is argued in the reports rather than left implicit.
 | `fp32_cmp` | six predicates, three-state result | 1 cycle | — |
 | `fp32_cvt` | float to int32 and back, saturating | 1 cycle | — |
 | `fp32_recip` | table plus one Newton step | 5 cycles | 1024x32 ROM |
+| `fp32_fpu_top` | routes by opcode, contains no arithmetic | — | — |
 | `fp32_mac_unit` | windowed dot product | 7 cycles after last term, II = 1 | 1275 LUT / 495 FF |
+
+The pipelines are deliberately shallow. In the target setting the caller usually waits for the
+result, so latency is the price of the operation: one more stage in the adder means one more cycle
+on every float add. The rule is therefore "minimum latency that still meets the clock", not the
+usual "deepen the pipeline for frequency". More throughput comes from instantiating several units
+in parallel, not from splitting one unit further.
 
 ## The contract
 
-The yardstick is not "how large is the error" but **"does the error follow a rule"**. Can a deviation
-be stated in one sentence with no "usually" or "in most cases", such that a user can decide whether
-it affects them? If yes it is a trade-off; if no it is a defect. Flushing subnormals to zero is a
-100% relative error inside that interval and is perfectly acceptable, because it is a rule with a
-clean boundary. "Some inputs happen to be off by a little" is not acceptable at any magnitude.
+The yardstick is not "how large is the error" but **"does the error follow a rule"**. Can a
+deviation be stated in one sentence with no "usually" or "in most cases", such that a user can
+decide whether it affects them? If yes it is a trade-off; if no it is a defect. Flushing subnormals
+to zero is a 100% relative error inside that interval and is perfectly acceptable, because it is a
+rule with a clean boundary. "Some inputs happen to be off by a little" is not acceptable at any
+magnitude.
 
 Promises are tiered, and the order is the priority order:
 
-- **Tier A, non-negotiable** — correct rounding in the supported domain; bit-identical to libgcc on
-  the common domain; a true ordering from the comparator; no garbage on special values; anything
-  checkable at elaboration must be checked at elaboration; **every accuracy number in the
-  documentation must have a verified provenance**.
+- **Tier A, non-negotiable** — correct rounding in the supported domain; identical results for the
+  same operation on any calling path; a true ordering from the comparator; no garbage on special
+  values; anything checkable at elaboration must be checked at elaboration; **every accuracy number
+  in the documentation must have a verified provenance**.
 - **Tier B, declared deviations** — the flush-to-zero rules, the tininess detection point, one
   rounding mode only, no exception flags, an error budget per approximate primitive, no fused
-  multiply-add, and the accumulator inequality above.
+  multiply-add, and the accumulator inequality below.
 - **Tier C, PPA** — after the first two.
 
 The full list lives in [`rtl/datapath-manual.md`](rtl/datapath-manual.md) §11.
 
-To be honest about it: **these tiers were written after the fact**, not before the first line of RTL.
-Auditing the directory against them turned up two places where an unachieved accuracy figure had been
-printed in the documentation, two regression scripts that always exited successfully, and the
-carry-save claim above. Getting that order backwards costs real rework, which is why the tiers now
-open chapter 01 rather than trailing the series as an appendix.
+The tiers were written after the twelve chapters of work, not before the first line of RTL.
+Auditing the directory against them turned up two places where an unachieved accuracy figure had
+been printed in the documentation, two regression scripts that always exited successfully, and the
+carry-save claim below. That order is not worth copying, which is why the contract now opens
+chapter 01.
 
-On the scalar side, `FMUL`, `FADD` and `FSUB` are bit-identical to IEEE-754 binary32
-round-to-nearest-even under FTZ semantics, over 450k random vectors at 0 ULP. `FCMP` returns three
-states, less / equal / greater plus unordered, not a boolean; six predicates share one opcode and a
-family bit picks the direction. `FCVT` saturates out-of-range conversions. `FRECIP` is within 4 ULP
-and is exposed only as an explicit call: it never replaces the `/` operator, because IEEE requires a
-correctly-rounded quotient. Subnormals flush to zero with the sign preserved, covered by 283 directed
-cases. Every latency in the table is measured and asserted, never derived from stage count.
+### Scalar side
 
-On the accumulator side, a term entering the window is right-shifted onto a common scale, so
-information can be lost in five places. Three are covered by a computable bound: writing `A = Σ|tᵢ|`
-for the sum of absolute inputs, `S` for the exact sum and `Z` for the window value before the final
-rounding,
+`FMUL`, `FADD` and `FSUB` are bit-identical to IEEE-754 binary32 round-to-nearest-even under FTZ
+semantics, over 450k random vectors at 0 ULP. `FCMP` returns three states, less / equal / greater
+plus unordered, not a boolean; six predicates share one opcode and a family bit picks the direction.
+`FCVT` saturates out-of-range conversions. `FRECIP` is within 4 ULP and is exposed only as an
+explicit call: it never replaces the `/` operator, because IEEE requires a correctly-rounded
+quotient. Subnormals flush to zero with the sign preserved, covered by 283 directed cases. Every
+latency in the table is measured and asserted, never derived from stage count.
+
+### Accumulator side
+
+A term entering the window is right-shifted onto a common scale, so information can be lost in five
+places. Three are covered by a computable bound: writing `A = Σ|tᵢ|` for the sum of absolute
+inputs, `S` for the exact sum and `Z` for the window value before the final rounding,
 
 ```
 |Z − S| < 2⁻⁴⁶ · A          the contract asks for 2⁻³² · A, so 14 bits of headroom
@@ -97,8 +105,7 @@ paths in the golden model changes no output bit at all.
 > largest term's alignment shift is always 8, hence a fixed 24 guard bits below it. The anchor is
 > raised in 16-bit quanta, so the shift reaches 23 and as few as 9 guard bits remain. **The
 > conclusion held; the reasoning behind it did not** — and a wrong derivation under a right
-> conclusion is the harder of the two to find, because users reason with the derivation, not the
-> conclusion.
+> conclusion is the harder of the two to find, because users reason with the derivation.
 
 One path costs a deterministic 1 ULP when the shifted-out bits carry the round decision. Fixing it
 measured +194 LUT (+15.2%), exactly cancelling the area this project recovered, and a boolean sticky
@@ -106,36 +113,46 @@ bit cannot recover the sign of the discarded residue, so the fix is not uncondit
 either. It is documented instead. The fifth path is catastrophic cancellation after an anchor reset;
 every finite-length accumulator that tracks the largest term has it. It is **not** excused by a
 disclaimer: the inequality above still holds, because `A` does not shrink when `S` does. A runtime
-bit, `mac_prec`, reports exactly this event per tile — and only this event, since a signal whose
+bit, `mac_prec`, reports exactly this event per block — and only this event, since a signal whose
 false-positive rate approaches one carries no information.
 
 ![design space](docs/figures/fig-designspace.svg)
 
-An exact Kulisch accumulator for FP32 under FTZ needs 555 bits per lane. This window is 88, or 16% of
-it. Full derivation and the mutation tests that validate the checks themselves are in
+An exact Kulisch accumulator for FP32 under FTZ needs 555 bits per lane. This window is 88, or 16%
+of it. Full derivation and the mutation tests that validate the checks themselves are in
 [docs/reports/11](docs/reports/11-定点窗口累加器的误差边界.md) (Chinese).
 
 ## Results
 
-![latency](docs/figures/fig-latency.svg)
-
-![workload](docs/figures/fig-workload.svg)
-
-The curve stops at 1132 ms because what remains is no longer floating point. Loop control,
-addressing, memory and integer branches account for 47% of the stage, 2.5x the largest remaining FP
-item, and 4.99 cycles per multiply is already the hardware price.
+All numbers below come from Vivado 2025.2, `xc7a200tfbg676-1`, 20 ns clock (50 MHz). They move with
+the device and the tool version; do not copy them as constants.
 
 ![accuracy](docs/figures/fig-accuracy.svg)
 
+![latency](docs/figures/fig-latency.svg)
+
+The "software" column is the cycle count for an FPU-less core emulating the operation with integer
+instructions. The "hardware" column is the measured cost of this datapath including the caller's
+wait, which is why a 3-cycle adder shows as 5.99 cycles.
+
+![workload](docs/figures/fig-workload.svg)
+
+The geometry stage of a 3D Gaussian splatting renderer, projecting points into screen-space
+ellipses, entirely floating point. Measured one operation at a time, 10559 ms down to 1132 ms. That
+curve belongs entirely to the scalar line; the accumulator is not on that path. It stops at 1132 ms
+because what remains is no longer floating point: loop control, addressing, memory and integer
+branches account for 47% of the stage, 2.5x the largest remaining FP item.
+
 ![ppa](docs/figures/fig-ppa.svg)
 
-The last pass recovered area through four bit-equivalent rewrites, with every testbench output
-unchanged. One is worth repeating. Writing data registers in the `else` branch of a reset block means
-"hold during reset", which is clock-enable semantics, so the synthesiser wired `rst_n` into the CE
-pin of thousands of registers. The post-route worst path had 0 logic levels, pure routing, ending on
-a CE pin. A single-lane out-of-context run cannot see this, since 88 enables is not a high-fanout
-net; it only shows up at chip level, after routing. `syn/scan_reset_as_ce.py` finds the pattern, and
-this repository's RTL no longer appears in its output.
+One area pass recovered LUTs through four bit-equivalent rewrites, with every testbench output
+unchanged. One is worth repeating. Writing data registers in the `else` branch of a reset block
+means "hold during reset", which is clock-enable semantics, so the synthesiser wired `rst_n` into
+the CE pin of thousands of registers. The post-route worst path had 0 logic levels, pure routing,
+ending on a CE pin. A single-lane out-of-context run cannot see it, since 88 enables is not a
+high-fanout net; it only shows up once many lanes are instantiated.
+`syn/scan_reset_as_ce.py` finds the pattern, and this repository's RTL no longer appears in its
+output.
 
 An earlier fix targeted the scalar adder, where hold slack had fallen to 0.010 ns on a
 zero-logic-level path, register straight to register. Hold has only two cures, add data delay or
@@ -163,7 +180,30 @@ green. Switching the stimulus to one that cancels, 10 of 64 cases differ: when t
 the two components are each shifted and truncated separately, which is not the same as truncating
 their sum. The check was not broken; it faithfully compared the stimulus it was handed. What was
 missing was any rule about **what stimulus that claim had to be verified against**. That single
-finding is what produced the tiered contract below.
+finding is what produced the tiered contract above.
+
+## Verification
+
+Three layers, each catching a class the others miss.
+
+**Bit-exact golden model.** Each unit runs against an independent reference, the host machine's
+IEEE-754 (`sim/gen_*_vectors.c` computes expected values with C `float`). The window accumulator has
+two further models: one replicating the hardware bit for bit, one summing exactly with rationals and
+rounding once. Those two used to share the same bit-pattern and product-construction code — sharing
+the input side means there is really only one model, since an error there corrupts both. After
+splitting them, breaking the first model's product exponent by one moves the cross-check from
+maxULP 0 to 139809444, and that number is the evidence they are now independent.
+
+**Mutation testing.** The checks themselves get checked. Five deliberate breakages of the golden
+model must each turn the bit-exact comparison red. On the first run four of the five stayed green —
+not because the checks were broken, but because each was paired with a stimulus that cannot observe
+the mutated path. Hence a rule: a mutation that does not turn red has two possible causes, a weak
+check or an unreachable path, and conflating them leads to fixing a check that was never broken.
+
+**The reporting layer needs checks too.** Both entry scripts used to return success unconditionally,
+one with a trailing `exit 0` and one because its exit code came from a `grep` in a pipeline. Any
+failing check still returned 0, which makes them useless as a gate. Both now derive their exit code
+from a failure count, and each has been mutation-tested.
 
 ## Running it
 
@@ -173,24 +213,16 @@ git clone https://github.com/f0d471/anchorfp.git && cd anchorfp
 
 bash sim/gen_vectors.sh      # golden vectors (derived data, not committed)
 bash sim/run_all.sh          # unit regression plus six MAC configurations
-bash sim/run_mac_audit.sh    # five directed counterexamples plus five mutation tests
+bash sim/run_mac_audit.sh    # directed counterexamples plus mutation tests
 bash sim/lint.sh
 cd syn && vivado -mode batch -source ooc_mac.tcl -tclargs base
 ```
 
-## Status
+Both scripts return 0 when everything passes and 1 on any failing check, so they can be wired
+directly into CI.
 
-The last two passes — area recovery and the contract audit — are simulation- and synthesis-verified
-(timing fully MET, bitstream produced) but have not been run on board yet. The scalar path and
-earlier MAC revisions were. Chip-level worst-case hold slack moved from 0.024 to 0.019 ns across the
-audit pass; the path shape did not change at all, only the placement did, so that pass cannot claim
-to be free — only that the cost is not in that path's logic.
-
-There is no CI, though both entry scripts now propagate failures as a non-zero exit code and every
-check is a counting check, so wiring one up is straightforward. `fp32_fpu_top` inherits its opcode
-encoding from the host SoC (`rtl/lacc_defs.vh`), one header to change if you attach a different core.
-The 12 engineering reports are in Chinese; this file is the English summary. Port-level reference:
-[`rtl/datapath-manual.md`](rtl/datapath-manual.md).
+Opcode encodings live in `rtl/fp32_ops.vh`: field width plus six values. Attaching a different core
+means editing that one header; the five compute units do not depend on the encoding.
 
 ## Related work
 
@@ -203,16 +235,19 @@ FPGA design space was mapped by de Dinechin and colleagues
 ([Design-space exploration for the Kulisch accumulator](https://hal.science/hal-01488916v2),
 [Floating-Point Accumulation and Sum of Products](https://doi.org/10.1007/978-3-031-42808-1_21)).
 
-What is contributed here is the balance. Those parts are re-proportioned for a blocking coprocessor,
-with latency first, unit cost measured on board, and the contract written down explicitly — late,
-as the section above admits, but written down. The
-accumulation line is truncated into an anchored 88-bit window inside a one-cycle feedback loop, fused
-with an unrounded multiplier, and the cost of that truncation is measured, written as a contract and
+What is contributed here is the balance. Those parts are re-proportioned for a setting where latency
+is the price of the operation, with unit cost measured rather than estimated and the contract
+written down explicitly — late, as the section above admits, but written down. The accumulation line
+is truncated into an anchored 88-bit window inside a one-cycle feedback loop, fused with an
+unrounded multiplier, and the cost of that truncation is measured, written as a contract and
 defended with mutation tests. The negative results are published alongside the positive ones.
+
+The twelve engineering reports are in Chinese; this file is the English summary. Port-level
+reference: [`rtl/datapath-manual.md`](rtl/datapath-manual.md).
 
 ## License
 
-Not chosen yet. The convention for hardware IP is the
-[Solderpad Hardware License v2.1](https://solderpad.org/licenses/SHL-2.1/), the hardware variant of
-Apache-2.0, used by cvfpu, lowRISC and PULP. Until a `LICENSE` file lands, treat this repository as
-read-and-evaluate only.
+[Solderpad Hardware License v2.1](LICENSE), the hardware variant of Apache-2.0, which you may also
+treat as plain Apache-2.0 at your option. It is what cvfpu, lowRISC and PULP use.
+
+SPDX identifier: `Apache-2.0 WITH SHL-2.1`

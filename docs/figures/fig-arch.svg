@@ -31,7 +31,7 @@
 <!-- scalar row -->
 <rect class="group" x="32" y="80" width="816" height="104" rx="8"/>
 <text class="t1" x="48" y="102" font-size="12.5" font-weight="600">Scalar path</text>
-<text class="t3" x="128" y="102" font-size="11">blocking coprocessor at EX — latency is the price of the instruction</text>
+<text class="t3" x="128" y="102" font-size="11">callers wait for the result, so latency is the price of the operation</text>
 
 <rect class="chip" x="48" y="112" width="150" height="56" rx="6"/>
 <text class="t1" x="123" y="136" font-size="12" text-anchor="middle">fp32_mul_pipe</text>

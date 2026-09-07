@@ -1,19 +1,9 @@
-// gen_denorm_vectors.c — denormal/极小值向量的金标准生成器
+// gen_denorm_vectors.c —— denormal 与极小值向量的金标准生成器
 //
-// 2026-08-04 [#37] V1-C 改写：金标准从"完整 IEEE"改为 **FTZ 契约**。
-//
-//   历史：本文件原本用 x86 的完整 IEEE 结果当期望值，用来复现两个已知 bug
-//   （fp32_mul_norm 只检测 5 位前导零、fp32_add 的 denormal 近似）。那批
-//   `MUL 161/161` + `ADD 80/100` 全错在 [#15] 被归档成"**基线不是 bug，不要修**"
-//   —— 因为当时 denormal 语义没有任何消费者，改它纯属给 NPU 的零余量时序找 churn。
-//
-//   V1-C 之后前提变了：LaCC wrapper 每次调用要为"软件兜 denormal"付 16.5 拍，
-//   于是硬件真身接管了全部语义，契约是 **FTZ**（[#37] V1-C §3）：
-//     · 输入 denormal(exp==0)  → 按 ±0 参与运算（符号保留）
-//     · 输出 denormal          → flush 成 ±0（符号保留）
-//     · Inf×0 / Inf×denormal   → qNaN
-//   ⇒ 期望值必须整体反转。**旧向量文件的"全错"从此不再是可容忍的基线，
-//      而是真正的 FAIL** —— 本 TB 由"bug 复现器"升级成"契约门禁"。
+// 期望值按 FTZ 契约算，不是完整 IEEE：
+//   输入 denormal（exp == 0）  按 ±0 参与运算，符号保留
+//   输出 denormal              flush 成 ±0，符号保留
+//   Inf x 0 / Inf x denormal   出 qNaN
 //
 // 用法: gcc -O2 -ffp-contract=off -o gen_denorm gen_denorm_vectors.c && ./gen_denorm > vectors_denorm.txt
 
@@ -134,6 +124,6 @@ int main(void) {
         cnt += 2;
     }
 
-    fprintf(stderr, "generated %d test vectors (FTZ contract, [#37] V1-C)\n", cnt);
+    fprintf(stderr, "generated %d test vectors (FTZ contract)\n", cnt);
     return 0;
 }

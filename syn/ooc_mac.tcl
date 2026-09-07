@@ -1,14 +1,7 @@
-# 单条 lane 的 PPA 快照。改 fp32_mac_unit 之后拿它做前后对照。
-#
-# 用法（在 syn/ 下）：
-#   <Vivado>/bin/vivado.bat -mode batch -source ooc_mac.tcl -tclargs <标签> [参数...]
-#   参数依次是 WinUp WinFrac UseCarrySave FuseMul，缺省 8 8 0 1
-#
-# 为什么不解析 report_utilization 的文本：
-#   原来的 ooc.tcl 用 `\| (Slice LUTs|Slice Registers|DSPs)\s` 抓结果，
-#   而 OOC 综合报告里那一行叫 "Slice LUTs*"（带星号），空白断言匹配不上，
-#   于是六份窗口宽度扫描日志里**一个 LUT 数都没量到** —— 而扫描的目的就是量面积。
-#   这里改成直接数网表里的单元，报告格式再变也不会把判据变哑。
+# 单条 lane 的离线综合快照，改 fp32_mac_unit 之后做前后对照。
+#   用法：vivado -mode batch -source ooc_mac.tcl -tclargs <标签> [WinUp WinFrac UseCarrySave FuseMul]
+#   缺省参数 8 8 0 1；UseCarrySave 只能传 0，非零档不在支持集合内
+#   结果直接数网表单元，不解析 report_utilization 的文本，报告格式变了也不会漏计
 
 proc arg {i d} { global argv; if {[llength $argv] > $i} { return [lindex $argv $i] } ; return $d }
 

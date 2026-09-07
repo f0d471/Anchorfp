@@ -1,5 +1,13 @@
 `timescale 1ns/1ps
-// tb_fp32_cmp.v —— fp32_cmp 定向TB（[#37] V1-D §3.1）
+//==============================================================================================//
+// TB: tb_fp32_cmp
+//
+// DESCRIPTION: fp32_cmp 的三态返回码定向用例，覆盖同号 / 异号 / 零 / NaN 四类。
+//
+// NOTE:
+//   1. 返回码是 -1/0/+1 三态，不是布尔，判据须按三态比
+//   2. gt_family 选 NaN 的方向，两族各测一遍
+//==============================================================================================//
 module tb_fp32_cmp;
     reg clk=0, rst_n=0; always #5 clk=~clk;
 
@@ -81,7 +89,7 @@ module tb_fp32_cmp;
         // ===== signed NaN =====
         do_cmp(32'hFFC00000, 32'h3F800000, 0); check(+1, "-qNaN<1 → +1 (unordered)");
 
-        // ===== [#37] V1-D review 补的缺口 =====
+        // ===== 边界与特殊值补充 =====
         // ① 负 denormal 的 FTZ 符号（原 TB 只测了正 denormal）
         $display("-- FTZ negative denormal --");
         do_cmp(32'h80000001, 32'h00000000, 0); check(0, "-dmin == +0 (FTZ, ±0相等)");
@@ -113,7 +121,7 @@ module tb_fp32_cmp;
     end
 
     // ---- 随机向量对拍：a b gt_family expected（全 hex）----
-    // 流水延迟 1 拍，按 SOP §2.3 用 FIFO 出队比对（对任意延迟 robust）。
+    // 流水延迟 1 拍，用 FIFO 出队比对，对任意延迟成立。
     localparam MAXN = 300000;
     integer fd, code, i, count, total, bad, rdp;
     reg [31:0] ta, tb_, tgf, te;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fp32_mac_unit 定点窗口的误差归因与定向反例。Todo 的工作点 A 与工作点 D。
+"""fp32_mac_unit 定点窗口的误差归因与定向反例。误差按来源分类计数，并给出跨块回灌的 K 趋势。
 
 这一份回答的不是「误差有多大」，而是「误差从哪来」。
 现有随机集相对无限精度参考的最大 ULP 是 0，但那只证明随机激励没打到边界，
@@ -19,7 +19,7 @@
   vectors <类> <文件>   生成一类定向向量，格式与 gen_dot_vectors.py 相同，
                         tb_mac_win 直接吃，用来证明 RTL 与模型在这一类上逐位相同
   audit                 五类各跑一遍，报归因计数与 ULP，判定每类是否命中
-  ktrend                工作点 D：K=64/128/256/512 分 tile 扫描，报 maxULP/P99/非零比例
+  ktrend                K=64/128/256/512 分 tile 扫描，报 maxULP/P99/非零比例
   bound                 舍入前的误差界：独立大整数模型逐前缀检查三条不等式
 
 判定口径见各子命令的注释。判据自身的注错见红由 run_mac_audit.sh 负责。
@@ -173,7 +173,7 @@ TINY = fp(0, 1, 0)           # 接近 FP32 下限
 
 
 def vec_spec(rng=None, n=None):
-    """工作点 E：把 fp.md 第 5.2 节写下的每一条数值契约摆成一条定向用例。
+    """把 datapath-manual 第 5.2 节的每一条数值契约摆成一条定向用例。
 
     这一类不查精度，查的是「文档说的和硬件做的是不是同一件事」。
     每条用例后面的注释就是它对应的契约原文，改契约必须同时改这里，
@@ -191,7 +191,7 @@ def vec_spec(rng=None, n=None):
 
 def _SPEC_TABLE(mk):
     """(用例, 期望标签) 对。标签而不是位型：位型要手算容易算错，
-    标签是契约本身的名字，人工复核时对着 fp.md 一句一句读就行。"""
+    标签是契约本身的名字，人工复核时对着手册一句一句读就行。"""
     return [
         # NaN 与 Inf 不进定点累加器，走旁路 sticky，末项组装时优先输出
         ((PZERO, mk([QNAN, ONE])),                     "qnan"),
@@ -318,7 +318,7 @@ def cmd_audit(seed=20260906):
     它是设计的固有代价，判据要求它确实大，才能证明这条反例是活的。
     """
     bad = 0
-    print("==== fp32_mac_unit 窗口误差归因（工作点 A） ====")
+    print("==== fp32_mac_unit 窗口误差归因 ====")
     # 保护位不是一个定值：基准按 WIN_G 的量子上抬，最大项的 sh 落在
     # [WIN_UP, WIN_UP+WIN_G-1]，保护位随之在一个区间里，最坏取下界。
     # 这里曾按 sh 恒为 WIN_UP 打印单个数，那是 bound 报告证伪掉的那条前提。
@@ -347,7 +347,7 @@ def cmd_audit(seed=20260906):
         print("  %-8s %-28s %s=%-6d maxULP=%-10d P99=%-8d 非零=%d/%d  期望 %s -> %s"
               % (case, CASES[case][3], key, hot, mx, p99, nz, len(ulps),
                  want, "PASS" if ok else "FAIL"))
-    # 工作点 E：契约枚举单独对账。这一类不比 ULP，比的是每条用例落在哪个契约档上
+    # 契约枚举单独对账。这一类不比 ULP，比的是每条用例落在哪个契约档上
     _, _, sres = run_case("spec", seed)
     want = spec_expect()
     miss = [(i, sres[i], want[i]) for i in range(len(want)) if sres[i] != want[i]]
@@ -369,18 +369,18 @@ def cmd_audit(seed=20260906):
     return bad
 
 
-# 工作点 D 的验收界。这不是理论界：分块求和的误差正比于条件数
+# 跨块回灌的验收界。这不是理论界：分块求和的误差正比于条件数
 # sum|x| / |sum x|，条件数无界，所以任何只按块数写的界都是错的。
-# 下面这一行是 2026-09-06 在 seed=20260906、nt=200、指数跨度 118..124 这组
+# 下面这一行是在 seed=20260906、nt=200、指数跨度 118..124 这组
 # 激励上实测出来的最大值，再留一倍余量当回归闸门用：
 # 它抓的是「以后改动把误差弄大了」，不是「误差在数学上不会超过它」。
 KTREND_GATE = {64: 0, 128: 16, 256: 32, 512: 200}
 
 
 def cmd_ktrend(seed=20260906, nt=200):
-    """工作点 D：跨 tile 回灌的代价随 K 怎么走。
+    """跨块回灌的代价随 K 怎么走。
 
-    tile 深度恒为 64（GEMM_TILE_COLS），K 变大就是块数变多。
+    块深度恒为 64，K 变大就是块数变多。
     参考层恒取整段无限精度，所以量到的就是分块本身的代价。
 
     第三列是旧形态（同序 IEEE 逐项舍入，nacc=4）在同一组输入上的误差。
@@ -391,7 +391,7 @@ def cmd_ktrend(seed=20260906, nt=200):
     from mac_win_model import ieee_dot
     from fractions import Fraction
     bad = 0
-    print("==== 跨 tile 回灌的误差随 K（工作点 D） ====")
+    print("==== 跨块回灌的误差随 K ====")
     print("  tile 深度恒 64，参考层是整段无限精度点积；闸门是实测基线加余量，不是理论界")
     for K in (64, 128, 256, 512):
         rng = random.Random(seed + K)
@@ -450,7 +450,7 @@ def _wb_product(a, b):
 def cmd_bound(seed=20260906, nt=2000):
     """窗口累加在舍入之前的误差界，逐前缀检查。
 
-    契约（doc/fp.md B 档）：对有限项 S = sum(t_i)、A = sum(|t_i|)，
+    契约（手册 B 档）：对有限项 S = sum(t_i)、A = sum(|t_i|)，
     要求 |Z - S| <= 2^-32 * A，Z 是末项舍入之前的窗口累加值。
 
     推导：窗口最低位的实数权重 lambda = 2^(B-205)。基准的不变式给出

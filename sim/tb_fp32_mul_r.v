@@ -1,5 +1,13 @@
 `timescale 1ns/1ps
-// 验证舍入版 fp32_mul_pipe vs IEEE 金标准(vectors_mul.txt)，FIFO 出队比对(延迟2拍)。
+//==============================================================================================//
+// TB: tb_fp32_mul_r
+//
+// DESCRIPTION: fp32_mul_pipe 的右移粘滞位定向用例，覆盖随机向量打不到的进位边界。
+//
+// NOTE:
+//   1. 随机向量命中率极低，这一族只能定向构造
+//   2. 对应右移规格化时把原积 bit0 并回 sticky 那一步
+//==============================================================================================//
 module tb_fp32_mul_r;
     localparam MAXN = 250000;
     reg clk=0, rst_n=0; reg [31:0] a,b; reg in_valid;
@@ -48,7 +56,6 @@ module tb_fp32_mul_r;
         // 但 P[24]==1 ⇒ lsb=1 ⇒ (sticky|lsb) 恒为 1 ⇒ 丢不丢都一样，**旧写法也应通过**。
         // 少了负控，一片红时无法区分"硬件有缺陷"和"这批向量本身算错了"。
         //
-        // 板上同源判据：sdk/software/examples/bench/fpmark/fpmark.c 的 (1b) 段 [F1]-[F3]。
         dir_bad = 0;
         for (i = 0; i < 9; i = i + 1) begin
             case (i)

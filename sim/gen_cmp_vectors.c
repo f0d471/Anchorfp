@@ -1,6 +1,6 @@
-/* gen_cmp_vectors.c —— fp32_cmp 的 IEEE(FTZ) 金标准向量（[#37] V1-D §3.1）
+/* gen_cmp_vectors.c —— fp32_cmp 的 IEEE(FTZ) 金标准向量
  *
- * 金标准对 C float 这个与设计无关的第三方（SOP §2），不与自己比。
+ * 金标准对 C float 这个与设计无关的第三方，不与自己比。
  * 语义契约（与 fp32_add/fp32_mul_pipe 的 FTZ 真身一致）：
  *   · denormal 输入按 ±0 参与比较（否则会出现 "fcmp 说非零、乘加当零" 的自相矛盾）
  *   · ±0 相等

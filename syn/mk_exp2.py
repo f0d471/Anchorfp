@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成「给对齐移出位补 sticky」的实验副本，用来量刀 C 那个修法的 PPA。
+"""生成「给对齐移出位补 sticky」的实验副本，用来量这个修法的面积代价。
 
 只改 exp2/ 下的副本，不动产线 RTL。跑法：
     python3 mk_exp2.py

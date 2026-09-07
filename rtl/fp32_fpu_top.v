@@ -3,19 +3,19 @@
 // MODULE: fp32_fpu_top
 //
 // DESCRIPTION: 标量 FP32 的分发层。按 op 把一路输入送给对应的计算单元，五个出口各自独立
-//   引出，不做延迟对齐，结果 MUX 由调用方 lacc_funcs_top 完成。
+//   引出，不做延迟对齐，结果 MUX 由调用方完成。
 //
 // NOTE:
-//   1. fpu_op 就是 LaCC ISA 的 op 域（恒等映射），编码单一出处在 rtl/lacc_defs.vh
+//   1. fpu_op 的编码与域宽定义在 rtl/fp32_ops.vh，接别的核只改那一份
 //   2. 五条出口的延迟定义在 rtl/fp32_lat.vh，端口注释只引宏名，不写数值
-//   3. FRECIP 是本模块唯一的近似原语（≤4 ULP），只经 hw_frecipf() 暴露，不接 __divsf3
+//   3. FRECIP 是本模块唯一的近似原语（≤4 ULP），只经显式调用暴露，不接 __divsf3
 //==============================================================================================//
 
-`include "lacc_defs.vh"
+`include "fp32_ops.vh"
 `include "fp32_lat.vh"
 
 module fp32_fpu_top #(
-    parameter OpWidth  = `LACC_CMD_WIDTH,
+    parameter OpWidth  = `FP32_OP_WIDTH,
     parameter ImmWidth = 7
 ) (
     input                   clk,
@@ -47,9 +47,9 @@ module fp32_fpu_top #(
     // 例化不存在的模块，综合与 lint 在例化期即报错（V2001 无编译期断言）。
     // 例化期仅约束参数与常数关系；延迟常数与实际拍数的一致性由sim/tb_fp_lat.v 施加。
     generate
-        // 例化方传入的 OpWidth 必须等于 ISA 的 op 域宽度（同 lacc_funcs_top 的检查）
-        if (OpWidth != `LACC_CMD_WIDTH) begin : gen_op_width_check
-            fp32_error_OP_WIDTH_must_equal_LACC_CMD_WIDTH u_op_width_check ();
+        // 例化方传入的 OpWidth 必须等于编码表的 op 域宽度
+        if (OpWidth != `FP32_OP_WIDTH) begin : gen_op_width_check
+            fp32_error_OpWidth_must_equal_FP32_OP_WIDTH u_op_width_check ();
         end
         // 五个计算单元均在输出寄存器前收口，延迟不可能为 0；
         // 填 0 意味着该出口为组合直通，调用方的 valid 对齐将整体错位。
@@ -71,12 +71,12 @@ module fp32_fpu_top #(
     endgenerate
 
     // 指令译码
-    wire cmd_fadd  = (fpu_op == `LACC_CMD_FADD);
-    wire cmd_fsub  = (fpu_op == `LACC_CMD_FSUB);
-    wire cmd_fmul  = (fpu_op == `LACC_CMD_FMUL);
-    wire cmd_fcmp  = (fpu_op == `LACC_CMD_FCMP);
-    wire cmd_cvt   = (fpu_op == `LACC_CMD_FCVT);
-    wire cmd_recip = (fpu_op == `LACC_CMD_FRECIP);
+    wire cmd_fadd  = (fpu_op == `FP32_OP_FADD);
+    wire cmd_fsub  = (fpu_op == `FP32_OP_FSUB);
+    wire cmd_fmul  = (fpu_op == `FP32_OP_FMUL);
+    wire cmd_fcmp  = (fpu_op == `FP32_OP_FCMP);
+    wire cmd_cvt   = (fpu_op == `FP32_OP_FCVT);
+    wire cmd_recip = (fpu_op == `FP32_OP_FRECIP);
 
     // 加减共用的第二操作数
     wire [31:0] faddsub_b = cmd_fsub ? {~fpu_b[31], fpu_b[30:0]} : fpu_b;   // FSUB 走加法通路，翻 b 的符号位

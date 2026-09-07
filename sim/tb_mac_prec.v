@@ -1,18 +1,14 @@
 `timescale 1ns/1ps
-//============================================================================
-// tb_mac_prec —— fp32_mac_unit 的 mac_prec 报的是基准重锚，不是基准移动
+//==============================================================================================//
+// TB: tb_mac_prec
 //
-// 两个事件的区别：win_rescale 报 raise_any（基准动过，多数情况无损），
-// mac_prec 报 raise_clr（need > ShMax，旧的累加和被整个丢弃）。
-// P2 是本 TB 的核心：没有它，mac_prec 退化成第二个 win_rescale。
+// DESCRIPTION: fp32_mac_unit 的 mac_prec 只报基准重锚（raise_clr），不报普通基准移动。
 //
-// 判据：
-//   P1 首项极小、次项极大，need > ShMax     mac_prec 与 win_rescale 都置位
-//   P2 普通抬基准，need 落在 1..ShMax       win_rescale 置位而 mac_prec 不置位
-//   P3 全程不抬基准                         两者都不置位，且证明 sticky 被 acc_load 清掉
-//
-// 跑法：由 run_all.sh 调用
-//============================================================================
+// NOTE:
+//   1. 三档判据：need > ShMax 时两个标志都置位；普通抬基准时只有 win_rescale 置位；
+//      全程不抬基准时两者都不置位，并证明 sticky 被 acc_load 清掉
+//   2. 第二档是核心：缺它 mac_prec 退化成第二个 win_rescale
+//==============================================================================================//
 module tb_mac_prec;
 
     reg clk = 0, rst_n = 0;
