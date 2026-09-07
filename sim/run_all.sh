@@ -76,6 +76,13 @@ python3 "$HERE/gen_dot_vectors.py" 256 100 4242 1 0 64 > "$OUT/vectors_win_mt.tx
 TAG=tb_mac_win_mt DEFS="-DVECF=\"$OUT/vectors_win_mt.txt\" -DKLEN=256 -DKDEP=64 -DTAGNAME=\"tb_mac_win_mt\"" \
 run tb_mac_win "$HERE" "$FP/fp32_mac_unit.v" "$FP/fp32_mul_pipe.v"
 
+# 认证项数上限那一档：2^GrowW = 32768 项满额必须全绿且 C5 恒零。
+# 这一档此前从来没跑满过（一直只跑 64 项），上限被写成 255 就是这么漏过去的。
+# 项数大、向量少，只取 4 组：这里要的是「满额能不能过」，不是覆盖率。
+python3 "$HERE/gen_dot_vectors.py" 32768 4 20260907 1 0 32768 > "$OUT/vectors_win_full.txt" 2>/dev/null || exit 1
+TAG=tb_mac_win_full DEFS="-DVECF=\"$OUT/vectors_win_full.txt\" -DKLEN=32768 -DKDEP=32768 -DTAGNAME=\"tb_mac_win_full\"" \
+run tb_mac_win "$HERE" "$FP/fp32_mac_unit.v" "$FP/fp32_mul_pipe.v"
+
 # 进位保存累加器档已删除：UseCarrySave = 1 与默认档不逐位等价（两个分量各自算术
 # 右移，分别截断再相加不等于先相加再截断），已由 cancel 激励实测 64 例差 10 例。
 # 该构型不在支持集合内，fp32_mac_unit 的例化期检查会挡住它。

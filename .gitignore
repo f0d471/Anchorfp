@@ -10,6 +10,7 @@ syn/*.jou
 syn/.Xil/
 vivado*.log
 vivado*.jou
+dfx_runtime.txt
 
 # 编辑器与系统
 .DS_Store

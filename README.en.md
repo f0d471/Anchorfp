@@ -88,8 +88,13 @@ places. Three are covered by a computable bound: writing `A = Σ|tᵢ|` for the 
 inputs, `S` for the exact sum and `Z` for the window value before the final rounding,
 
 ```
-|Z − S| < 2⁻⁴⁶ · A          the contract asks for 2⁻³² · A, so 14 bits of headroom
+|Z − S| < 2⁻ᑫ · A           Q = 46 + WinFrac − ⌈log₂N⌉
 ```
+
+`N` is the term-count bound of one accumulation and `WinFrac` is an instantiation parameter. The
+contract is this formula, not a fixed number: with the default `WinFrac = 8`, `N ≤ 255` gives
+`Q = 46` and `N ≤ 32768` gives `Q = 39`. More terms means a looser bound — that is the cost of
+summation itself, not of this implementation.
 
 The bound uses only the anchor invariant and assumes nothing about "how many guard bits there are",
 which matters for the fifth path below. It is confirmed by a sharper test as well: breaking those
@@ -113,7 +118,15 @@ false-positive rate approaches one carries no information.
 ![design space](docs/figures/fig-designspace.svg)
 
 An exact Kulisch accumulator for FP32 under FTZ needs 555 bits per lane. This window is 88, or 16%
-of it. Full derivation and the mutation tests that validate the checks themselves are in
+of it. The 88 is derived, not tuned: `AccW = 48 + WinG + WinFrac + ⌈log₂N⌉ + 1`, which for the
+48-bit unrounded product, a 16-bit anchor quantum, 8 fraction bits and 32768 terms gives exactly 88.
+
+Both endpoints were synthesised from the same RTL, flow and device (xc7a200t-1, 20 ns, OOC single
+lane): 88 bits costs 1278 LUT / 496 FF at 7.53 ns slack, while the 555-bit window costs 9106 LUT /
+1956 FF at 0.61 ns — 7.1× the area, and logic depth rising from 17 to 49. Exact accumulation costs
+frequency before it costs area. Between 81 and 96 bits the curve is flat: 15 bits of certified
+precision for 10.9% of the LUTs, with slack unchanged. Full derivation and the mutation tests that
+validate the checks themselves are in
 [docs/reports/11](docs/reports/11-定点窗口累加器的误差边界.md) (Chinese).
 
 ## Results

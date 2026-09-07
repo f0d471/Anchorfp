@@ -9,7 +9,8 @@
 //   1. 项的统一刻度是二元组 (mant48, E)，值恒为 mant48 * 2^(E - 173)
 //   2. 基准跟着运行最大值走，不变式 B >= E + WinUp，不足时按 WinG 位的量子上抬，
 //      累加器同拍算术右移同样位数
-//   3. 窗口宽 TW = 48 + WinUp + WinG + WinFrac，累加器再加 8 位求和增长与符号
+//   3. 窗口宽 TW = 48 + WinUp + WinG + WinFrac；累加器宽 AccW = (TW - WinUp) + GrowW + 1，
+//      即项的落点、GrowW 位求和增长与一位符号。一次累加的项数上限是 2^GrowW
 //   4. 对阶与规格化共用一个桶形右移器，左移由两侧的位序翻转实现
 //   5. NaN 与 Inf 不进定点累加器，走旁路 sticky
 //   6. 调用方的五条契约见 doc/fp.md 5.1，仅仿真的断言在 fp32_mac_assert.vh
@@ -27,7 +28,8 @@ module fp32_mac_unit #(
     parameter WinFrac      = 8,    // 最大项 LSB 之下留的位数
     parameter FuseMul      = 1,    // 1 取乘法器级 1 的未舍入积，0 取舍入后的尾数
     parameter UseCarrySave = 0,    // 进位保存累加器，见 NOTE 8，当前不在支持集合内
-    parameter MaxTerms     = 0     // 调用方声明的每 tile 最大项数，0 表示不声明
+    parameter GrowW        = 15,   // 求和增长位，等于 ceil(log2 N)，N 为一次累加的最大项数
+    parameter MaxTerms     = 0     // 调用方声明的每次累加最大项数，0 表示不声明
 ) (
     input             clk,
     input             rst_n,
@@ -44,7 +46,10 @@ module fp32_mac_unit #(
 );
 
     localparam TW     = 48 + WinUp + WinG + WinFrac;   // 对齐后一项占的位宽
-    localparam AccW   = TW + 8;                        // 累加器位宽
+    // 累加器位宽。不变式 B >= E + WinUp 保证任何单项对齐后的最高位不超过 TW-1-WinUp，
+    // 所以窗口顶部那 WinUp 位不是项的落点，而是求和增长的空间；累加器要覆盖的是
+    // (TW - WinUp) 位的项、GrowW 位的增长和一位符号，与 WinUp 无关
+    localparam AccW   = 48 + WinG + WinFrac + GrowW + 1;
     localparam ShAmtW = $clog2(AccW);                  // 移位量位宽，覆盖 0..AccW-1
     localparam DMAX   = (AccW + WinG - 1) / WinG;      // 上调档位数，超过它累加器已被移空
     localparam DIdxW  = $clog2(DMAX + 1);
@@ -69,7 +74,7 @@ module fp32_mac_unit #(
         if (UseCarrySave != 0) begin : gen_csa_check
             fp32_error_UseCarrySave_not_in_supported_set u_csa_check ();
         end
-        if ((MaxTerms != 0) && (MaxTerms > ((1 << (AccW - TW)) - 1))) begin : gen_maxterm_check
+        if ((MaxTerms != 0) && (MaxTerms > (1 << GrowW))) begin : gen_maxterm_check
             fp32_error_MaxTerms_exceeds_MAC_certified_bound u_maxterm_check ();
         end
     endgenerate

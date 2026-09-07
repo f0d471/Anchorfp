@@ -15,7 +15,7 @@
 `ifdef FP32_MAC_ASSERT_INLINE
 
     localparam PaceMin = `FP32_MAC_PACE;
-    localparam MaxTerm = (1 << (AccW - TW)) - 1;   // 求和增长位撑得住的项数
+    localparam MaxTerm = 1 << GrowW;   // 求和增长位撑得住的项数，2^GrowW
 
     integer mac_c1, mac_c2, mac_c3, mac_c4, mac_c5;
     integer mac_gap;      // 距上一次 prod_valid 的拍数
