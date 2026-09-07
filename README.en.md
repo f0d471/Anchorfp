@@ -71,12 +71,6 @@ Promises are tiered, and the order is the priority order:
 
 The full list lives in [`rtl/datapath-manual.md`](rtl/datapath-manual.md) §11.
 
-The tiers were written after the twelve chapters of work, not before the first line of RTL.
-Auditing the directory against them turned up two places where an unachieved accuracy figure had
-been printed in the documentation, two regression scripts that always exited successfully, and the
-carry-save claim below. That order is not worth copying, which is why the contract now opens
-chapter 01.
-
 ### Scalar side
 
 `FMUL`, `FADD` and `FSUB` are bit-identical to IEEE-754 binary32 round-to-nearest-even under FTZ
