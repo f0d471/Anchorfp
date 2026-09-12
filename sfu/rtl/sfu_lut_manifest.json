@@ -1,0 +1,41 @@
+{
+  "format": "lowercase 8-hex-digit FP32 words, LF newline",
+  "generator": "gen_luts.py",
+  "index_bits": 10,
+  "rounding": "binary64 formula evaluation, then IEEE-754 FP32 round-to-nearest-even",
+  "tables": {
+    "exp_lut.mem": {
+      "count": 1024,
+      "first": "3f800b18",
+      "interval_max_relative_error": "3.385622055263e-04",
+      "last": "3fffe9d3",
+      "sampling": "2^((i+0.5)/1024), midpoint",
+      "sha256": "168745fe2e5d1bb11011b703db602149ff2311870bb4c36a3967bb2220e6539e"
+    },
+    "rsqrt_even_lut.mem": {
+      "count": 1024,
+      "first": "3f800000",
+      "interval_max_relative_error": "4.881620988826e-04",
+      "last": "3f351045",
+      "sampling": "1/sqrt(1+i/1024), left endpoint",
+      "sha256": "0b6bed8e32837b22cd5e8520b112d96449bc64952412b53278e163230fd6fbb4"
+    },
+    "rsqrt_odd_lut.mem": {
+      "count": 1024,
+      "first": "3f3504f3",
+      "interval_max_relative_error": "4.881449762570e-04",
+      "last": "3f000801",
+      "sampling": "1/sqrt(2*(1+i/1024)), left endpoint",
+      "sha256": "0adbe1f86e088d2b997cced14f1528f87a5ff481303b62cd75ccf099a011e23c"
+    },
+    "sin_lut.mem": {
+      "count": 1024,
+      "first": "00000000",
+      "interval_max_absolute_error": "1.535479676980e-03",
+      "last": "3f800000",
+      "sampling": "sin((pi/2)*i/1023), closed interval",
+      "sha256": "7113194c6c55f62bc89a710635b9ea4a80444311df1e271caf41450b02ad64dd"
+    }
+  },
+  "version": 1
+}

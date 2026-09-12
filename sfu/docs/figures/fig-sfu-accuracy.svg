@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" width="880" height="360" role="img" aria-label="Largest measured error of exp, sin, cos and rsqrt as a share of each function's error budget">
+<style>
+  .s{fill:#fcfcfb}
+  .t1{fill:#0b0b0b}
+  .t2{fill:#52514e}
+  .t3{fill:#77756f}
+  .grid{stroke:#e7e6e2;stroke-width:1}
+  .axis{stroke:#c9c7c1;stroke-width:1}
+  .limit{stroke:#77756f;stroke-width:1;stroke-dasharray:3 3}
+  .frame{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .b1{fill:#2a78d6}
+  text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .s{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .t3{fill:#8f8d85}
+    .grid{stroke:#2e2e2c} .axis{stroke:#3d3c39} .limit{stroke:#8f8d85} .frame{stroke:#2e2e2c}
+    .b1{fill:#3987e5}
+  }
+</style>
+<rect class="s" x="0" y="0" width="880" height="360" rx="8"/>
+<rect class="frame" x="0.5" y="0.5" width="879" height="359" rx="8"/>
+
+<text class="t1" x="32" y="40" font-size="17" font-weight="600">Measured error against the budget</text>
+<text class="t2" x="32" y="62" font-size="12.5">Largest error seen, as a share of each function's budget. exp and rsqrt use relative error, sin and cos use absolute error.</text>
+
+<g class="grid">
+  <line x1="200" y1="100" x2="200" y2="300"/>
+  <line x1="340" y1="100" x2="340" y2="300"/>
+  <line x1="480" y1="100" x2="480" y2="300"/>
+  <line x1="620" y1="100" x2="620" y2="300"/>
+</g>
+<line class="limit" x1="760" y1="100" x2="760" y2="300"/>
+<g class="t3" font-size="11" text-anchor="middle">
+  <text x="200" y="92">0</text>
+  <text x="340" y="92">25%</text>
+  <text x="480" y="92">50%</text>
+  <text x="620" y="92">75%</text>
+  <text x="760" y="92">budget</text>
+</g>
+
+<!-- bar length = 560 px × measured / budget -->
+<text class="t1" x="188" y="122" font-size="12.5" text-anchor="end">exp</text>
+<rect class="b1" x="200" y="110" width="501.2" height="14" rx="4"/><rect class="b1" x="200" y="110" width="6" height="14"/>
+<text class="t1" x="848" y="122" font-size="12.5" font-weight="600" text-anchor="end">89%</text>
+<text class="t3" x="200" y="142" font-size="11">3.58e-4 relative, budget 4e-4 · 9500 fixed stimuli</text>
+
+<text class="t1" x="188" y="172" font-size="12.5" text-anchor="end">sin</text>
+<rect class="b1" x="200" y="160" width="525.3" height="14" rx="4"/><rect class="b1" x="200" y="160" width="6" height="14"/>
+<text class="t1" x="848" y="172" font-size="12.5" font-weight="600" text-anchor="end">94%</text>
+<text class="t3" x="200" y="192" font-size="11">1.50e-3 absolute, budget 1.6e-3 · |x| &lt; 2^17</text>
+
+<text class="t1" x="188" y="222" font-size="12.5" text-anchor="end">cos</text>
+<rect class="b1" x="200" y="210" width="525.2" height="14" rx="4"/><rect class="b1" x="200" y="210" width="6" height="14"/>
+<text class="t1" x="848" y="222" font-size="12.5" font-weight="600" text-anchor="end">94%</text>
+<text class="t3" x="200" y="242" font-size="11">1.50e-3 absolute, budget 1.6e-3 · |x| &lt; 2^17</text>
+
+<text class="t1" x="188" y="272" font-size="12.5" text-anchor="end">rsqrt</text>
+<rect class="b1" x="200" y="260" width="546.6" height="14" rx="4"/><rect class="b1" x="200" y="260" width="6" height="14"/>
+<text class="t1" x="848" y="272" font-size="12.5" font-weight="600" text-anchor="end">98%</text>
+<text class="t3" x="200" y="292" font-size="11">4.88e-4 relative, budget 5e-4 · all 2048 table entries at their worst point</text>
+
+<line class="axis" x1="200" y1="100" x2="200" y2="300"/>
+<line class="axis" x1="32" y1="316" x2="848" y2="316"/>
+<text class="t3" x="32" y="336" font-size="11.5">The budget is part of the specification: a change that misses it changes the operator, not the budget. The exp table bound is ln2/2048 = 3.39e-4.</text>
+<text class="t3" x="32" y="352" font-size="11.5">Reproduce: bash sfu/sim/run_all.sh. The exp, sin and cos reference is libm on the RTL output; rsqrt is tb_rsqrt_stream check R11.</text>
+</svg>

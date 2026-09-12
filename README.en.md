@@ -2,347 +2,272 @@
 
 # Anchorfp
 
-An FP32 datapath under FTZ semantics, for accelerators on FPGA
+An FP32 datapath for accelerators on FPGA: scalar arithmetic units, a fixed-point windowed multiply-accumulate unit, and transcendental function units
 
-[![RTL](https://img.shields.io/badge/RTL-Verilog--2001-1f6feb)](rtl/)
-[![target](https://img.shields.io/badge/target-Artix--7%20xc7a200t%20%40%2050%20MHz-555555)](docs/reports/)
-[![regression](https://img.shields.io/badge/regression-1.17M%20vectors-2ea043)](sim/)
-[![accumulator](https://img.shields.io/badge/dot%20product-88--bit%20window-2ea043)](#the-dot-product-line)
+[![RTL](https://img.shields.io/badge/RTL-Verilog--2001-1f6feb)](fp/rtl/)
+[![target](https://img.shields.io/badge/target-Artix--7%20xc7a200t%20%40%2050%20MHz-555555)](fp/docs/reports/)
+[![regression](https://img.shields.io/badge/regression-1.18M%20vectors-2ea043)](fp/sim/)
+[![accumulator](https://img.shields.io/badge/dot%20product-88--bit%20window-2ea043)](#fp-windowed-multiply-accumulate)
 [![license](https://img.shields.io/badge/license-SHL--2.1-lightgrey)](LICENSE)
 
-[中文版 README](README.md) · this is the short English version
+[中文版 README](README.md) · this file is the English summary
 
 </div>
 
 ---
 
-An accelerator on an FPGA usually sits next to a control core, and that core usually has no FPU, so
-a single float multiply in C costs tens to hundreds of cycles emulated with integer instructions.
-Filling that hole needs nothing new: an adder, a multiplier, a comparator, conversions and an
-approximate reciprocal, built the textbook way. That is what the six scalar operations here are.
-They are bit-identical to IEEE-754 binary32 under FTZ semantics, and there is nothing else to them.
+This repository provides two groups of Verilog-2001 modules that can be used independently. Both follow
+the same numeric conventions: denormal inputs are treated as zero (DAZ), tiny results are flushed to zero
+(FTZ), and every NaN result is quiet.
 
-The part worth thinking about is the dot product. Matrix multiply, convolution and projection are
-all long dot products underneath, and a dot product is not just a multiplier chained to an adder:
-chain them and every term gets rounded, so error grows with length. That is where this project makes
-a call, replacing the FP32 accumulator with an 88-bit fixed-point ruler that does not round inside a
-block.
+- **fp**: five scalar units (add/subtract, multiply, compare, convert, approximate reciprocal) and a
+  fixed-point windowed multiply-accumulate unit. Add, subtract, multiply, compare and convert are
+  bit-identical to IEEE-754 binary32 round-to-nearest-even under FTZ semantics.
+- **sfu**: exp, sin, cos and rsqrt, each built as domain compression, a 1024-entry table and field
+  restoration. Results are approximate, with the error budget stated in the contract.
 
-![architecture](docs/figures/fig-arch.svg)
+The target is an accelerator on an FPGA whose control core typically has no FPU, whose hot paths contain
+scalar floating point, long dot products and transcendental functions, and whose logic budget is in the
+tens of thousands of LUTs. The two main design decisions are: the multiply-accumulate unit replaces an FP32
+accumulator with an 88-bit fixed-point window anchored to the largest term, rounding once per block; the
+transcendental units replace iteration or polynomial evaluation with a fixed-latency table structure and
+give each function a verifiable precision budget.
 
-## What it is, and is not
+## Overview
 
-FP32 only. Flush-to-zero only. No division, no square root, no FP64/FP16, no exception flags.
+![fp architecture](fp/docs/figures/fig-arch.svg)
 
-| Module | Role | Latency | Out-of-context area |
-|---|---|:--:|---|
-| `fp32_add` | add / subtract | 3 cycles | 399 LUT / 147 FF |
-| `fp32_mul_pipe` | multiply, significand in DSP | 2 cycles | 98 LUT / 66 FF / 2 DSP |
-| `fp32_cmp` | six predicates, three-state result | 1 cycle | combinational |
-| `fp32_cvt` | float to int32 and back, saturating | 1 cycle | combinational |
-| `fp32_recip` | table plus one Newton step | 5 cycles | 1024x32 ROM |
-| `fp32_fpu_top` | routes by opcode, contains no arithmetic | — | — |
-| `fp32_mac_unit` | windowed dot product | 7 cycles after last term, II = 1 | 1275 LUT / 495 FF |
+![sfu architecture](sfu/docs/figures/fig-sfu-arch.svg)
 
-The pipelines are deliberately shallow. In the target setting the caller usually waits for the
-result, so latency is the price of the operation: one more stage in the adder means one more cycle
-on every float add. The rule is therefore "minimum latency that still meets the clock", not the
-usual "deepen the pipeline for frequency". More throughput comes from instantiating several units in
-parallel, not from splitting one unit further.
+| Directory | Module | Function | Latency | Resources (out of context, xc7a200t) |
+|---|---|---|:--:|---|
+| `fp/` | `fp32_add` | add and subtract; subtraction flips the sign of the second operand | 3 | 504 LUT / 147 FF |
+| `fp/` | `fp32_mul_pipe` | multiply, significand product in DSP | 2 | 107 LUT / 66 FF / 2 DSP48 |
+| `fp/` | `fp32_cmp` | six predicates on one unit, three-state result | 1 | 80 LUT / 3 FF |
+| `fp/` | `fp32_cvt` | float and int32 both ways, saturating | 1 | 519 LUT / 33 FF |
+| `fp/` | `fp32_recip` | approximate reciprocal, table plus one Newton step | 5 | 156 LUT / 176 FF / 4 DSP48 / 1 RAMB18 |
+| `fp/` | `fp32_fpu_top` | routes by opcode to the five units above, no arithmetic | — | 1297 LUT / 425 FF in total |
+| `fp/` | `fp32_mac_unit` | windowed multiply-accumulate, one rounding per block | 7 after the last term, II = 1 | 1278 LUT / 496 FF / 2 DSP48 |
+| `sfu/` | `exp_func` | exponential | 5 | 290 LUT / 89 FF / 2 DSP48 / 1 RAMB36 |
+| `sfu/` | `sincos_func` | sin and cos on one pipeline, selected per cycle | 2 | 285 LUT / 40 FF / 4 DSP48 / 1 RAMB36 (table included) |
+| `sfu/` | `rsqrt_func` | reciprocal square root | 4 | 107 LUT / 92 FF / 2 RAMB36 |
 
-## The scalar six
+Resource figures come from `fp/syn/ooc_units.tcl`, `fp/syn/ooc_mac.tcl` and `sfu/syn/ooc_sfu.tcl`
+(Vivado 2025.2, `xc7a200tfbg676-1`, 20 ns constraint, netlist cell counts). Latency is the number of
+cycles from the clock edge that samples `in_valid` to the edge that raises `out_valid`, measured and
+asserted by the testbenches.
 
-Nothing new here; the list is so that a user knows what they are getting. The multiplier splits into
-five steps, with a 10-bit signed exponent and GRS rounding rather than truncation, which has a
-systematic bias. The adder is three stages: align, normalise, round and pack. Comparator and
-converter are one stage each. The reciprocal is a table plus one Newton step, with interval
-midpoints stored rather than endpoints, which takes the error from 16011 ULP down to 4 ULP.
+Pipelines are as shallow as timing allows. Behind a caller that waits for the result, latency is the price
+of the operation, so one more adder stage costs one more cycle on every add; higher throughput comes from
+instantiating several units. Every unit accepts a new input every cycle, so streaming callers are served
+equally well.
+
+Not provided: FP64 or FP16, correctly rounded division or square root, a denormal datapath, exception
+flags, rounding modes other than round-to-nearest-even.
+
+## Numeric contract
+
+Commitments are tiered, in priority order. The full lists are in
+[`fp/rtl/datapath-manual.md`](fp/rtl/datapath-manual.md) section 11 and
+[`sfu/rtl/sfu-manual.md`](sfu/rtl/sfu-manual.md) section 5 (Chinese).
+
+- **Tier A, non-negotiable.** Correct rounding for add, subtract, multiply, compare and convert within the
+  domain; bit-identity with software floating point on the common domain; deterministic output; a true
+  order relation for non-NaN comparisons; defined special-value propagation; elaboration-time checks for
+  anything checkable at elaboration; every precision number in the documentation traced to a measurement
+  with its stated range.
+- **Tier B, stated deviations.** DAZ on input, FTZ on output with tininess detected after rounding;
+  round-to-nearest-even only; no exception flags; quiet NaN results; reciprocal within 4 ULP;
+  transcendental units within a relative error of 4e-4 for exp, an absolute error of 1.6e-3 for sin and
+  cos, and a relative error of 5e-4 for rsqrt; the multiply-accumulate error bound below.
+- **Tier C, performance, area and power**, ranked after the first two.
+
+A deviation is a design decision if it can be stated in one sentence without "usually" or "mostly" and a
+user can tell from it whether their data is affected; otherwise it is a defect. FTZ has 100% relative error
+in the denormal range, but it is a rule with a clear boundary, so it qualifies.
+
+## fp: scalar units
+
+The multiplier has two stages and uses a 10-bit signed exponent so that overflow cannot wrap into
+underflow; its unrounded 48-bit product is also the input of the multiply-accumulate unit. The adder has
+three stages: align, add or subtract with leading-zero normalisation, round and pack. The comparator returns
+-1, 0 or +1, and its `gt_family` input selects the direction returned for NaN so that both predicate
+families evaluate to false; the three-state result is not a total order and must not be used directly as a
+sort comparator. The reciprocal uses a midpoint-sampled 1024-entry table and one fixed-point Newton step,
+is within 4 ULP and exact for powers of two, and is exposed only as an explicit operation, because IEEE 754
+requires a correctly rounded quotient.
 
 | Operation | Guarantee | Check |
 |---|---|---|
-| `FMUL` `FADD` `FSUB` | bit-identical to IEEE-754 binary32 round-to-nearest-even under FTZ | 450k random vectors, 0 ULP, 100% |
-| `FCMP` | six predicates on one opcode, NaN unordered | 200.8k random vectors + 32 directed |
-| `FCVT` | float and int32 both ways, saturating | 100k random vectors + 36 directed |
-| `FRECIP` | within 4 ULP | 20k random vectors, tolerance check |
-| Subnormals | flushed to zero on input and output, sign preserved | 283 directed cases |
-| Latency | every value is measured, never derived from stage count | `tb_fp_lat`, 17 checks with mutation |
+| add, subtract, multiply | bit-identical to IEEE-754 binary32 under FTZ | 450k random vectors, 0 ULP; directed sticky-bit cases |
+| compare | three-state result, NaN direction per family | ~200k random vectors + 32 directed |
+| convert | both directions, saturating | 100k random vectors + 36 directed |
+| reciprocal | within 4 ULP | 20k random vectors, tolerance check |
+| denormals | flushed to signed zero on input and output | 283 directed cases |
+| latency | every value measured, never derived from stage count | `tb_fp_lat`, 17 checks including contract mutations |
 
-Three details that get missed. The comparator returns three states, not a boolean: less, equal,
-greater and unordered are four distinct cases, and treating it as a boolean produces the "only the
-diagonal matches" artefact. FTZ is the semantics at the hardware boundary and the only deviation
-from IEEE-754 in this datapath. `FRECIP` is exposed only as an explicit call and never replaces the
-`/` operator, because IEEE requires a correctly-rounded quotient and swapping in an approximation
-would silently change the results of already-compiled programs.
+## fp: windowed multiply-accumulate
 
-## The dot-product line
+A general-purpose FPU rounds every term twice when it computes a dot product, so the error grows with
+length. Against infinitely precise summation, K = 64, 300 cases per row:
 
-### Chaining a multiplier to an adder
-
-A general-purpose FPU computes a dot product by multiplying a term, rounding to FP32, adding it to
-the accumulator and rounding again. The accumulator holds 24 significand bits, every term is rounded
-twice, and the error grows with length. Measured on K=64 dot products against infinitely precise
-summation, 300 random cases per row:
-
-| Stimulus | 88-bit window | Same order, rounded per term in FP32 |
+| Stimulus | 88-bit window | same order, rounded per term in FP32 |
 |---|---:|---:|
-| Regular | 0 | 1168 |
-| Very small values | 0 | 164 |
-| Wide spread (product exponents span 210 bits) | 0 | 79 |
+| regular | 0 | 1168 |
+| very small values | 0 | 164 |
+| wide spread (product exponents span 210 bits) | 0 | 79 |
 
-The right column is what reusing an off-the-shelf fmul and fadd gets you. It is not a bad
-implementation, it is what a general-purpose FPU is defined to do; it just grows error when dropped
-into an accelerator whose hot path is dot products.
+An exact Kulisch accumulator covering every FP32 product under FTZ needs 555 bits. Setting `GrowW` from 15
+to 482 in the same RTL produces it; in the same out-of-context flow the area grows 7.1x (1278 to 9106 LUT),
+logic depth grows from 17 to 49 levels, and slack against 20 ns falls from 7.53 ns to 0.61 ns.
 
-### The other end: losing nothing
+![design space](fp/docs/figures/fig-designspace.svg)
 
-The opposite approach is an accumulator wide enough that any product in the FP32 range lands in it
-unrounded, with a single rounding at the very end. That is Kulisch's idea from the 1970s, and the
-posit quire is its standardised form. The length is computable: under FTZ the smallest non-zero
-product is 2⁻²⁵² with its LSB at 2⁻²⁹⁹, and the largest is below 2²⁵⁶, so covering every bit
-between them takes 555 bits.
-
-Setting `GrowW` from 15 to 482 in the same RTL gives exactly that ruler. Same flow, same device
-(xc7a200t-1, 20 ns, OOC single lane):
-
-| Window width | LUT | FF | WNS | Logic levels |
-|---:|---:|---:|---:|---:|
-| 88 | 1278 | 496 | 7.528 ns | 17 |
-| 555 | 9106 | 1956 | 0.605 ns | 49 |
-
-7.1x the area, but the right-hand columns matter more: logic depth goes from 17 to 49 and slack
-against 20 ns falls from 7.53 ns to 0.61 ns. Exact accumulation costs frequency before it costs
-area, and this adder chain sits inside the feedback loop, so one more cycle on the loop halves
-throughput.
-
-![design space](docs/figures/fig-designspace.svg)
-
-### Why the ruler is 88 bits
-
-Most of those 555 bits are never used. What decides a dot product is the terms of comparable
-magnitude; a term 2⁻⁴⁰ below the largest one cannot move the result's last bit. A full-range ruler
-is built for "any term might show up", whereas one summation actually occupies a window, not the
-whole ruler. So the window tracks the running maximum, under the invariant `B >= E + WinUp`, with
-the accumulator arithmetic-shifted by the same amount in the same cycle.
-
-The width is four independent quantities added up:
-
-```
- 48   unrounded product of two binary32 significands, 24 x 24
- 16   WinG, the interval width the largest term lands in after anchor quantisation
-  8   WinFrac, bits kept below the largest term's LSB, which sets the certified precision Q
- 15   GrowW = ceil(log2 N), summation growth for up to 32768 terms
-  1   sign
- ---
- 88
-```
-
-The 48 is the premise of the whole design: the product is not rounded first. The 48-bit raw product
-out of multiplier stage 1 goes straight into the window without passing through FP32 rounding, which
-is what "fused" means here and where the gap in the table above comes from. On the same vectors,
-rounding the product once per IEEE before it enters the window takes the maximum error from 0 to
-1027 ULP.
-
-### 88 is not a magic number
-
-Read that table backwards and it is the specification of the ruler. Given a term bound N and a
-target precision Q, two formulas fix the width with nothing left to tune:
+The window follows the running maximum under the invariant `B >= E + WinUp`. Its width is
+48 (unrounded product) + 16 (`WinG`) + 8 (`WinFrac`) + 15 (`GrowW` for 32768 terms) + 1 (sign) = 88 bits.
+Given a term bound N and a precision parameter, the width and certified precision Q are fixed by
 
 ```
 AccW = 48 + WinG + WinFrac + ceil(log2 N) + 1
 Q    = 46 + WinFrac − ceil(log2 N)
 ```
 
-Q means this bound: writing `A = Σ|tᵢ|` for the sum of absolute inputs, `S` for the exact sum and
-`Z` for the window value before the final rounding,
+Sweeping `WinFrac` and `GrowW` from 81 to 96 bits leaves area and timing essentially flat (about 11% LUT,
+logic depth fixed at 17, noise about ±5%); the cost rises steeply only on the way to 555 bits.
+
+Writing `A = Σ|tᵢ|`, `S` for the exact sum and `Z` for the window value before the final rounding, the
+contract is
 
 ```
 |Z − S| < 2^(−Q) · A
 ```
 
-The contract is the formula, not a number. With the default `WinFrac = 8`, `N ≤ 255` gives `Q = 46`,
-`N ≤ 4096` gives `Q = 42` and `N ≤ 32768` gives `Q = 39`. More terms means a looser bound; that is
-the cost of summation itself, not of this implementation.
+The bound uses only the anchor invariant and holds under cancellation. Across 2352 prefix checks (5093
+rescales, 1221 clears) the measured `|Z−S|·2³²/A` peaks at 3.36e-07. One deterministic construction loses
+1 ULP when the shifted-out bits carry the rounding decision; the fix measured +194 LUT (+15.2%) and is not
+unconditionally correct, so it is documented rather than implemented. A cancellation after an anchor reset
+can remove the result entirely, which is inherent to any finite window that tracks the largest term; the
+module raises `mac_prec` on that event only. Error across blocks comes from handing the partial sum over in
+FP32, grows with the condition number, and has no block-count bound.
 
-So 88 is just the default configuration, the one for 32768 terms. A user who only ever sums 255
-terms passes `GrowW = 8` and gets the same `Q = 46` in 81 bits; passing 482 returns to the 555-bit
-exact accumulator above. One RTL source covers the whole design space, and 88 is a point on it.
+![accuracy](fp/docs/figures/fig-accuracy.svg)
 
-The formulas fix 88, but they do not say whether that point is worth taking. Sweeping `WinFrac` and
-`GrowW` through the same OOC flow:
+Calling contract, checked by simulation-only assertions C1 to C5: `prod_valid` spacing of at least
+`FP32_MAC_PACE`, `last` aligned with the final term, no new products between the final term and
+`out_valid`, measured last-term latency equal to `FP32_MAC_OUT_LAT_F(FuseMul)`, and at most `2^GrowW`
+terms per block. The last one is also checked at elaboration through the `MaxTerms` parameter.
 
-| AccW | Certified Q | LUT | FF | WNS | Logic levels |
-|---:|---:|---:|---:|---:|---:|
-| 81 | 32 | 1215 | 475 | 7.333 ns | 17 |
-| 84 | 35 | 1359 | 488 | 7.528 ns | 17 |
-| 88 | 39 | 1278 | 496 | 7.528 ns | 17 |
-| 92 | 43 | 1321 | 508 | 7.528 ns | 17 |
-| 96 | 47 | 1348 | 520 | 7.200 ns | 17 |
+## sfu: transcendental function units
 
-From 81 to 96 bits the curve is flat: 15 bits of certified precision for 10.9% of the LUTs, slack
-unchanged, depth pinned at 17 (the non-monotonicity between neighbouring rows puts the noise of this
-sweep at about ±5%). Sweeping `GrowW` gives the same shape, with LUT count set by `AccW` alone
-regardless of whether those bits went to precision or to capacity. This is why 88 should not be
-described as a compromise between precision and area: along this stretch there is nothing to
-compromise. The cliff is on the way to 555 bits. The position of 88 is any point on the flat, and
-the reason it sits here is the two formulas, not the shape of the curve.
+Each function compresses its input into a bounded interval while saving an integer, reads a 1024 × 32
+synchronous ROM with a 10-bit address, and restores the saved integer into the exponent or the sign. There
+is no iteration and no feedback loop.
 
-### What the window discards
+- **exp_func** writes `|x| · log2(e) = n + f`, adds `n` to the exponent and looks up `2^f`. The table is
+  sampled at interval midpoints, bounding the relative error by `ln2/2048 = 3.39e-4`; negative inputs map to
+  `(−n−1, 1023−idx)`, which is tied to that sampling choice.
+- **sincos_func** takes the fractional part of `|x| / (2π)` with one multiplication regardless of the
+  angle, handles negative angles with a two's complement of the phase fraction, and stores a quarter period.
+  Cosine is a quarter-period phase offset added after the multiplication, selected per cycle by `is_cos`.
+  Finite inputs with `|x| >= 2^17` return the canonical qNaN rather than a plausible-looking number.
+- **rsqrt_func** splits `1/sqrt(m · 2^e)` into `1/sqrt(m) · 2^(−e/2)`, folds the leftover `1/sqrt(2)` of odd
+  exponents into a second table read in parallel, and takes the output exponent from the table entry itself.
+  It contains no multiplier.
 
-A term is right-shifted onto a common scale before it enters, so information can be lost in five
-places. Three of them are covered by the bound above, which uses only the anchor invariant and
-assumes nothing about how many guard bits happen to remain. That matters for the fifth: after an
-anchor reset discards the old sum, cancellation can remove the result entirely, and the inequality
-still holds because `A` does not shrink when `S` does. The cost of stating it this way is that
-acceptance has to be checked against absolute error and input scale, not as a fixed relative error
-on a near-zero `S`. Across 2352 prefix checks (5093 rescales, 1221 clears), the measured
-`|Z−S|·2³²/A` peaks at 3.36e-07.
+![sfu accuracy](sfu/docs/figures/fig-sfu-accuracy.svg)
 
-> An earlier version of this section claimed "bounded below 2⁻⁴⁰ ULP". That derivation assumed the
-> largest term's alignment shift is always 8, hence a fixed 24 guard bits below it. The anchor is
-> raised in 16-bit quanta, so the shift reaches 23 and as few as 9 guard bits remain. The conclusion
-> held; the reasoning behind it did not, and a wrong derivation under a right conclusion is the
-> harder of the two to find, because users reason with the derivation.
+| Function | Metric | Budget | Measured maximum | Method |
+|---|---|---|---|---|
+| exp | relative error | 4e-4 | 3.579e-4 | 9500 fixed stimuli against libm |
+| sin / cos | absolute error | 1.6e-3 | 1.501e-3 | same, `|x| < 2^17` |
+| rsqrt | relative error | 5e-4 | 4.881e-4 | all 2048 table entries at their worst point |
 
-One path costs a deterministic 1 ULP when the shifted-out bits carry the round decision. Fixing it
-measured +194 LUT (+15.2%), exactly cancelling the area recovered elsewhere in this project, and a
-boolean sticky bit cannot recover the sign of the discarded residue, so the fix is not
-unconditionally correct either. It is documented instead. The fifth path is inherent to any
-finite-length accumulator that tracks the largest term. Besides being in the contract, the module
-raises `mac_prec` per block on an anchor reset, and only on that event, since a signal whose
-false-positive rate approaches one carries no information.
+Sharing one pipeline between sin and cos saves 252 LUT (47%), 34 FF and 4 DSP48 compared with two units fed
+from independent inputs, with unchanged slack. When both units are fed from the same input bus the tool
+already merges the identical multipliers and the saving shrinks to 17 LUT and 31 FF; sharing by structure
+makes the saving independent of that optimisation.
 
-Full derivation, the counterexample constructions and the mutation tests that validate the checks
-themselves are in [docs/reports/11](docs/reports/11-定点窗口累加器的误差边界.md) (Chinese).
+![sfu shared](sfu/docs/figures/fig-sfu-shared.svg)
 
-### Calling contract
+The four tables are generated deterministically by `sfu/sim/gen_luts.py` together with JSON and Tcl
+manifests. A missing table makes synthesis emit an uninitialised ROM with only a warning and makes
+simulation read all X, so three checks guard it: `gen_luts.py --check` compares tables and manifests byte
+for byte, `sfu/syn/check_sfu_luts.tcl` checks entry count, endpoints and SHA-256 before synthesis, and the
+unit testbenches assert that no result contains X.
 
-Not checked in the netlist, caught by assertions in simulation (`rtl/fp32_mac_assert.vh`, C1 to C5
-with independent counters): the pacing between `prod_valid` pulses, `last` aligned with the final
-term, no new products between the last term and `out_valid` while terms are still in flight, the
-measured last-term-to-output latency, and the term count staying within `2^GrowW`. The last one has
-an earlier line of defence too: a caller declares `MaxTerms`, and exceeding the certified bound is
-an elaboration-time error, since block depth is a compile-time constant and finding it in simulation
-would mean something checkable at elaboration was not checked there.
+## Area recovery
 
-Port-level reference: [`rtl/datapath-manual.md`](rtl/datapath-manual.md).
+![mac area](fp/docs/figures/fig-mac-area.svg)
 
-## Results
-
-All numbers below come from Vivado 2025.2, `xc7a200tfbg676-1`, 20 ns clock (50 MHz). They move with
-the device and the tool version; do not copy them as constants.
-
-![accuracy](docs/figures/fig-accuracy.svg)
-
-![latency](docs/figures/fig-latency.svg)
-
-The "software" column is the cycle count for an FPU-less core emulating the operation with integer
-instructions. The "hardware" column is the measured cost of this datapath including the caller's
-wait, which is why a 3-cycle adder shows as 5.99 cycles.
-
-![workload](docs/figures/fig-workload.svg)
-
-The geometry stage of a 3D Gaussian splatting renderer, projecting points into screen-space
-ellipses, entirely floating point. Measured one operation at a time, 10559 ms down to 1132 ms. That
-curve belongs entirely to the scalar line; the accumulator is not on that path. It stops at 1132 ms
-because what remains is no longer floating point: loop control, addressing, memory and integer
-branches account for 47% of the stage, 2.5x the largest remaining FP item.
-
-![ppa](docs/figures/fig-ppa.svg)
-
-One area pass recovered LUTs through four bit-equivalent rewrites, with every testbench output
-unchanged. One is worth repeating. Writing data registers in the `else` branch of a reset block
-means "hold during reset", which is clock-enable semantics, so the synthesiser wired `rst_n` into
-the CE pin of thousands of registers. The post-route worst path had 0 logic levels, pure routing,
-ending on a CE pin, with 0.053 ns of setup slack; splitting them restored 1.550 ns. A single-lane
-out-of-context run cannot see it, since 88 enables is not a high-fanout net. `syn/scan_reset_as_ce.py`
-finds the pattern, and this repository's RTL no longer appears in its output.
-
-An earlier fix targeted the scalar adder, where hold slack had fallen to 0.010 ns on a
-zero-logic-level path, register straight to register. Hold has only two cures, add data delay or
-shift the clock phase. This one rebuilt a narrow signal so that it must pass through one level of
-logic, restoring 0.028 ns with directed equivalence tests guarding the numerics. The acceptance gate
-was rewritten at the same time, from "slack >= 35 ps" to "all paths MET and the worst path is not a
-zero-logic hop", because slack moves with placement and path shape does not.
-
-## Engineering calls, including the rejected ones
-
-| Idea | Measured | Verdict |
-|---|---|---|
-| Replace `/` with the approximate reciprocal | silently changes compiled results | no, explicit calls only |
-| Correctly-rounded iterative divider | cost exceeds benefit at this workload mix | no, division stays in software |
-| Support subnormals | expensive classification path on both sides | no, FTZ, written into the contract |
-| Truncate instead of GRS rounding | systematic bias | no |
-| Split the shared barrel shifter | +28 LUT | no, sharing is correct |
-| Sticky bit for the 1-ULP case | +194 LUT, not unconditionally correct | no, documented instead |
-| Carry-save accumulator in the loop | +24.4% LUT, +22% FF, and not bit-identical | withdrawn, blocked at elaboration |
-| Split the 597-line MAC by pipeline stage | area flat, interface complexity up | only the simulation-only assertions were lifted out |
-
-The carry-save row was wrong for a while. It used to read "bit-identical, no gain", and a regression
-configuration tested exactly that claim and stayed green. Switching the stimulus to one that cancels,
-10 of 64 cases differ: when the anchor is raised, the two components are each shifted and truncated
-separately, which is not the same as truncating their sum. The check was not broken; it faithfully
-compared the stimulus it was handed. What was missing was any rule about what stimulus that claim
-had to be verified against.
+Three bit-equivalent rewrites reduced one multiply-accumulate lane from 1470 to 1275 LUT with every
+testbench output unchanged. One of them is a pattern worth knowing: data registers written in the `else`
+branch of a reset block hold their value during reset, which is clock-enable semantics, so synthesis wires
+`rst_n` into their CE pins. With 32 lanes instantiated, thousands of CE pins hang on one reset net and the
+post-route worst path becomes a zero-logic route ending on a CE pin. A single out-of-context lane cannot show
+it. `fp/syn/scan_reset_as_ce.py` finds the pattern in an RTL directory.
 
 ## Verification
 
-Three layers, each catching a class the others miss.
-
-Bit-exact golden model. Each unit runs against an independent reference, the host machine's IEEE-754
-(`sim/gen_*_vectors.c` computes expected values with C `float`). The window accumulator has two
-further models: one replicating the hardware bit for bit, one summing exactly with rationals and
-rounding once. Those two used to share the same bit-pattern and product-construction code, which
-means there was really only one model, since an error there corrupts both. After splitting them,
-breaking the first model's product exponent by one moves the cross-check from maxULP 0 to 139809444,
-and that number is the evidence they are now independent.
-
-Mutation testing. The checks themselves get checked. Five deliberate breakages of the golden model
-must each turn the bit-exact comparison red. On the first run four of the five stayed green, not
-because the checks were broken, but because each was paired with a stimulus that cannot observe the
-mutated path. Hence a rule: a mutation that does not turn red has two possible causes, a weak check
-or an unreachable path, and conflating them leads to fixing a check that was never broken.
-
-The reporting layer needs checks too. Both entry scripts used to return success unconditionally, one
-with a trailing `exit 0` and one because its exit code came from a `grep` in a pipeline. Any failing
-check still returned 0, which makes them useless as a gate. Both now derive their exit code from a
-failure count, and each has been mutation-tested.
+- **Bit-exact golden models and independent references.** Scalar units are checked against IEEE-754
+  results computed with C `float`. The multiply-accumulate unit has a bit-accurate model and an exact
+  rational reference with independently written input decoding. The transcendental units use a frozen
+  bit-exact reference to detect change and `sfu/sim/verify_sfu.py`, which computes errors against libm, to
+  judge correctness; neither replaces the other.
+- **Mutation testing.** Checks are themselves checked: five mutations of the multiply-accumulate golden
+  model must each turn the bit-exact comparison red, and the sfu table-loading checks, the shared
+  sin/cos tag logic and the flush path were verified the same way. A mutation that stays green means
+  either a weak check or an unreachable path, and the two must be told apart.
+- **Reporting layer.** Every entry script derives its exit code from a failure count and requires at least
+  one pass marker, so it can gate CI directly.
 
 ## Running it
 
 ```bash
-# needs iverilog >= 12, gcc, python3; verilator for lint, Vivado for synthesis
+# needs iverilog >= 12, gcc, python3; verilator for lint; Vivado for synthesis
 git clone https://github.com/f0d471/Anchorfp.git && cd Anchorfp
 
-bash sim/gen_vectors.sh      # golden vectors (derived data, not committed)
-bash sim/run_all.sh          # unit regression plus six MAC configurations
-bash sim/run_mac_audit.sh    # directed counterexamples plus mutation tests
-bash sim/lint.sh
-cd syn && vivado -mode batch -source ooc_mac.tcl -tclargs base
+bash fp/sim/gen_vectors.sh      # golden vectors for the scalar units (derived data, not committed)
+bash fp/sim/run_all.sh          # scalar units, multiply-accumulate configurations, latency checks
+bash fp/sim/run_mac_audit.sh    # directed counterexamples, mutation tests, error reports
+bash fp/sim/lint.sh
+
+bash sfu/sim/run_all.sh         # table check, handshake forms, bit-exact comparison, independent reference
+bash sfu/sim/lint.sh
+
+cd fp/syn  && vivado -mode batch -source ooc_units.tcl -tclargs fp32_add
+cd sfu/syn && vivado -mode batch -source ooc_sfu.tcl   -tclargs exp_func
 ```
 
-Both scripts return 0 when everything passes and 1 on any failing check, so they can be wired
-directly into CI.
+Integration notes: opcode encodings live only in `fp/rtl/fp32_ops.vh`; latency constants live only in
+`fp/rtl/fp32_lat.vh` and `sfu/rtl/sfu_lat.vh` and must be referenced by any alignment pipeline;
+`bram_lut_1024x32` reads its `.mem` file by bare name, so synthesis must be able to find it (see `read_mem`
+in the `syn/` scripts) and simulation must run in a directory containing it; the sine table of
+`sincos_func` is instantiated by the caller.
 
-Opcode encodings live in `rtl/fp32_ops.vh`: field width plus six values. Attaching a different core
-means editing that one header; the five compute units do not depend on the encoding.
+## Repository layout
+
+```
+common/      bram_lut_1024x32.v, the 1024-entry synchronous ROM shared by fp and sfu
+fp/          rtl/ (units, manual), sim/ (generators, testbenches, scripts), syn/, docs/reports (8 chapters), docs/figures
+sfu/         rtl/ (units, tables, manifests, manual), sim/, syn/, docs/reports (5 chapters), docs/figures
+```
 
 ## Related work
 
 [FPnew / cvfpu](https://github.com/openhwgroup/cvfpu) and
-[Berkeley HardFloat](http://www.jhauser.us/arithmetic/HardFloat.html) are the IEEE-compliant
-general-purpose points. [FloPoCo](https://flopoco.org/) is the FPGA-specific operator generator and
-carries exact-accumulator operators. Short-pipeline FP32 add and multiply, GRS rounding and
-table-plus-Newton reciprocals are all textbook, as the scalar section says. Exact fixed-point
-accumulation is Kulisch's, and the FPGA design space was mapped by de Dinechin and colleagues
+[Berkeley HardFloat](http://www.jhauser.us/arithmetic/HardFloat.html) are IEEE-compliant general-purpose
+implementations. [FloPoCo](https://flopoco.org/) is an FPGA operator generator that includes exact
+accumulators. Short-pipeline FP32 add and multiply, GRS rounding, table-plus-Newton reciprocals and
+table-based transcendental functions are established techniques. Exact fixed-point accumulation is
+Kulisch's work, and its FPGA design space was mapped by de Dinechin and colleagues
 ([Design-space exploration for the Kulisch accumulator](https://hal.science/hal-01488916v2),
 [Floating-Point Accumulation and Sum of Products](https://doi.org/10.1007/978-3-031-42808-1_21)).
 
-What this repository adds is the point in between: the accumulation line truncated into an anchored
-88-bit window inside a one-cycle feedback loop, fused with an unrounded multiplier, with the cost of
-that truncation measured, written as a contract a user can reason with, and defended with mutation
-tests. The negative results are published alongside the positive ones.
-
-The twelve engineering reports are in Chinese; this file is the English summary.
+This repository contributes the point between exact accumulation and per-term rounding, an anchored 88-bit
+window in a one-cycle feedback loop fused with an unrounded multiplier, together with a measured and
+stated contract for what the window loses; and, for the approximate transcendental units, precision
+budgets, reproducible table generation and table-loading checks. The engineering reports, including
+rejected designs and corrected conclusions, are written in Chinese.
 
 ## License
 

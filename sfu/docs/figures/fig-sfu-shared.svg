@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img" aria-label="LUT and DSP48 count of two separate sin and cos units compared with one shared sin and cos pipeline">
+<style>
+  .s{fill:#fcfcfb}
+  .t1{fill:#0b0b0b}
+  .t2{fill:#52514e}
+  .t3{fill:#77756f}
+  .base{stroke:#c9c7c1;stroke-width:1}
+  .frame{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .panel{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .b1{fill:#2a78d6}
+  .b2{fill:#eb6834}
+  text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .s{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .t3{fill:#8f8d85}
+    .base{stroke:#3d3c39} .frame{stroke:#2e2e2c} .panel{stroke:#2e2e2c}
+    .b1{fill:#3987e5} .b2{fill:#d95926}
+  }
+</style>
+<rect class="s" x="0" y="0" width="880" height="400" rx="8"/>
+<rect class="frame" x="0.5" y="0.5" width="879" height="399" rx="8"/>
+
+<text class="t1" x="32" y="40" font-size="17" font-weight="600">One pipeline for sin and cos</text>
+<text class="t2" x="32" y="62" font-size="12.5">The two functions differ only in a phase offset added after the multiplication, so they can share it. Out of context, one table each side.</text>
+
+<g font-size="12">
+  <rect class="b2" x="536" y="32" width="11" height="11" rx="2"/>
+  <text class="t2" x="553" y="42">two units, independent inputs</text>
+  <rect class="b1" x="742" y="32" width="11" height="11" rx="2"/>
+  <text class="t2" x="759" y="42">shared pipeline</text>
+</g>
+
+<!-- LUT panel: 0.3 px per LUT, baseline 300 -->
+<rect class="panel" x="32" y="84" width="400" height="248" rx="8"/>
+<text class="t1" x="52" y="110" font-size="13" font-weight="600">LUT</text>
+<rect class="b2" x="122" y="138.9" width="72" height="161.1" rx="4"/><rect class="b2" x="122" y="294" width="72" height="6"/>
+<rect class="b1" x="270" y="214.5" width="72" height="85.5" rx="4"/><rect class="b1" x="270" y="294" width="72" height="6"/>
+<text class="t1" x="158" y="130" font-size="12.5" font-weight="600" text-anchor="middle">537</text>
+<text class="t1" x="306" y="206" font-size="12.5" font-weight="600" text-anchor="middle">285</text>
+<line class="base" x1="52" y1="300" x2="412" y2="300"/>
+<text class="t2" x="232" y="322" font-size="12.5" font-weight="600" text-anchor="middle">−47%</text>
+
+<!-- DSP panel: 20 px per DSP48, baseline 300 -->
+<rect class="panel" x="448" y="84" width="400" height="248" rx="8"/>
+<text class="t1" x="468" y="110" font-size="13" font-weight="600">DSP48</text>
+<rect class="b2" x="538" y="140" width="72" height="160" rx="4"/><rect class="b2" x="538" y="294" width="72" height="6"/>
+<rect class="b1" x="686" y="220" width="72" height="80" rx="4"/><rect class="b1" x="686" y="294" width="72" height="6"/>
+<text class="t1" x="574" y="131" font-size="12.5" font-weight="600" text-anchor="middle">8</text>
+<text class="t1" x="722" y="211" font-size="12.5" font-weight="600" text-anchor="middle">4</text>
+<line class="base" x1="468" y1="300" x2="828" y2="300"/>
+<text class="t2" x="648" y="322" font-size="12.5" font-weight="600" text-anchor="middle">−50%</text>
+
+<line class="base" x1="32" y1="350" x2="848" y2="350"/>
+<text class="t3" x="32" y="372" font-size="11.5">Both layouts use one RAMB36: two tables with identical contents are mapped onto the two ports of a single block. Worst-path slack is unchanged.</text>
+<text class="t3" x="32" y="390" font-size="11.5">Fed from the same input bus, two units synthesize to 302 LUT and 4 DSP48, because the tool merges the identical multipliers. See sfu/docs/reports/05.</text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img" aria-label="LUT count of one fp32_mac_unit lane across the bit-equivalent area recovery steps">
+<style>
+  .s{fill:#fcfcfb}
+  .t1{fill:#0b0b0b}
+  .t2{fill:#52514e}
+  .t3{fill:#77756f}
+  .grid{stroke:#e7e6e2;stroke-width:1}
+  .base{stroke:#c9c7c1;stroke-width:1}
+  .frame{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .b1{fill:#2a78d6}
+  text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .s{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .t3{fill:#8f8d85}
+    .grid{stroke:#2e2e2c} .base{stroke:#3d3c39} .frame{stroke:#2e2e2c}
+    .b1{fill:#3987e5}
+  }
+</style>
+<rect class="s" x="0" y="0" width="880" height="400" rx="8"/>
+<rect class="frame" x="0.5" y="0.5" width="879" height="399" rx="8"/>
+
+<text class="t1" x="32" y="40" font-size="17" font-weight="600">Area recovered without changing the structure</text>
+<text class="t2" x="32" y="62" font-size="12.5">One fp32_mac_unit lane, out of context, LUT count. Every testbench output is bit-identical across the steps.</text>
+
+<g class="grid">
+  <line x1="110" y1="290" x2="830" y2="290"/>
+  <line x1="110" y1="236" x2="830" y2="236"/>
+  <line x1="110" y1="182" x2="830" y2="182"/>
+  <line x1="110" y1="128" x2="830" y2="128"/>
+</g>
+<g class="t3" font-size="11" text-anchor="end">
+  <text x="100" y="294">0</text>
+  <text x="100" y="240">500</text>
+  <text x="100" y="186">1000</text>
+  <text x="100" y="132">1500 LUT</text>
+</g>
+
+<!-- bars: scale 0.108 px per LUT, baseline 290 -->
+<rect class="b1" x="160" y="131.2" width="80" height="158.8" rx="4"/><rect class="b1" x="160" y="284" width="80" height="6"/>
+<rect class="b1" x="330" y="148.8" width="80" height="141.2" rx="4"/><rect class="b1" x="330" y="284" width="80" height="6"/>
+<rect class="b1" x="500" y="152.3" width="80" height="137.7" rx="4"/><rect class="b1" x="500" y="284" width="80" height="6"/>
+<rect class="b1" x="670" y="152.0" width="80" height="138.0" rx="4"/><rect class="b1" x="670" y="284" width="80" height="6"/>
+
+<g class="t1" font-size="12.5" font-weight="600" text-anchor="middle">
+  <text x="200" y="123">1470</text>
+  <text x="370" y="141">1307</text>
+  <text x="540" y="144">1275</text>
+  <text x="710" y="144">1278</text>
+</g>
+
+<line class="base" x1="110" y1="290" x2="830" y2="290"/>
+
+<g class="t2" font-size="11.5" text-anchor="middle">
+  <text x="200" y="312">window, before</text>
+  <text x="370" y="312">narrow register,</text>
+  <text x="540" y="312">data registers</text>
+  <text x="710" y="312">current, with the</text>
+</g>
+<g class="t2" font-size="11.5" text-anchor="middle">
+  <text x="370" y="328">two-level lz count</text>
+  <text x="540" y="328">off the reset net</text>
+  <text x="710" y="328">mac_prec flag</text>
+</g>
+
+<line class="base" x1="32" y1="350" x2="848" y2="350"/>
+<text class="t3" x="32" y="372" font-size="11.5">Vivado 2025.2, xc7a200tfbg676-1, 20 ns clock. Flip-flops 561 to 496, logic levels on the worst path 18 to 17.</text>
+<text class="t3" x="32" y="390" font-size="11.5">Reproduce: cd fp/syn and run ooc_mac.tcl. Details in fp/docs/reports/08, sections 4.8 and 5.3.</text>
+</svg>

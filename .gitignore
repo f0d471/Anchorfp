@@ -1,15 +1,13 @@
-# 金标准向量是派生数据，由 sim/gen_vectors.sh 生成
-sim/vectors_*.txt
-sim/__pycache__/
-sim/*.vvp
+# 金标准向量是派生数据，由 fp/sim/gen_vectors.sh 生成
+fp/sim/vectors_*.txt
+__pycache__/
+*.vvp
 
-# 综合与实验副本
-syn/exp2/
-syn/*.log
-syn/*.jou
-syn/.Xil/
-vivado*.log
-vivado*.jou
+# 综合产物与实验副本
+fp/syn/exp2/
+.Xil/
+*.log
+*.jou
 dfx_runtime.txt
 
 # 编辑器与系统

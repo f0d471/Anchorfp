@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 500" width="880" height="500" role="img" aria-label="Pipeline of the three SFU units: exp, shared sin and cos, and rsqrt, each compressing the input, reading a 1024 by 32 table and restoring the result">
+<style>
+  .s{fill:#fcfcfb}
+  .t1{fill:#0b0b0b}
+  .t2{fill:#52514e}
+  .t3{fill:#77756f}
+  .frame{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .group{fill:none;stroke:#e7e6e2;stroke-width:1}
+  .stage{fill:none;stroke:#c9c7c1;stroke-width:1}
+  .rom{fill:none;stroke:#2a78d6;stroke-width:2}
+  .flow{stroke:#77756f;stroke-width:1.5;fill:none}
+  .accent{fill:#2a78d6}
+  .accent2{fill:#eb6834}
+  text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .s{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .t3{fill:#8f8d85}
+    .frame{stroke:#2e2e2c} .group{stroke:#2e2e2c} .stage{stroke:#3d3c39}
+    .rom{stroke:#3987e5} .flow{stroke:#8f8d85} .accent{fill:#3987e5} .accent2{fill:#d95926}
+  }
+</style>
+<rect class="s" x="0" y="0" width="880" height="500" rx="8"/>
+<rect class="frame" x="0.5" y="0.5" width="879" height="499" rx="8"/>
+
+<text class="t1" x="32" y="38" font-size="17" font-weight="600">Compress, look up, restore</text>
+<text class="t2" x="32" y="60" font-size="12.5">Each unit folds its input into a bounded interval, reads a 1024 × 32 table, and puts the saved integer back into the exponent or sign.</text>
+
+<!-- exp -->
+<rect class="group" x="32" y="80" width="816" height="112" rx="8"/>
+<text class="t1" x="48" y="102" font-size="12.5" font-weight="600">exp_func</text>
+<text class="t3" x="832" y="102" font-size="11" text-anchor="end">5 cycles · 2 DSP48 · 1 table</text>
+<g font-size="11" text-anchor="middle">
+  <rect class="stage" x="48" y="118" width="140" height="56" rx="6"/>
+  <text class="t1" x="118" y="141" font-size="12">fixed point</text>
+  <text class="t3" x="118" y="159">|x| to Q8.20</text>
+  <rect class="stage" x="204" y="118" width="140" height="56" rx="6"/>
+  <text class="t1" x="274" y="141" font-size="12">× log2(e)</text>
+  <text class="t3" x="274" y="159">split n and index</text>
+  <rect class="rom" x="360" y="118" width="140" height="56" rx="6"/>
+  <text class="t1" x="430" y="141" font-size="12">table 2^f</text>
+  <text class="t3" x="430" y="159">interval midpoints</text>
+  <rect class="stage" x="516" y="118" width="140" height="56" rx="6"/>
+  <text class="t1" x="586" y="141" font-size="12">latch entry</text>
+  <text class="t3" x="586" y="159">flags aligned with it</text>
+  <rect class="stage" x="672" y="118" width="140" height="56" rx="6"/>
+  <text class="t1" x="742" y="141" font-size="12">exponent + n</text>
+  <text class="t3" x="742" y="159">special values</text>
+</g>
+<g class="flow">
+  <path d="M188 146 h16"/><path d="M344 146 h16"/><path d="M500 146 h16"/><path d="M656 146 h16"/>
+</g>
+
+<!-- sincos -->
+<rect class="group" x="32" y="208" width="816" height="112" rx="8"/>
+<text class="t1" x="48" y="230" font-size="12.5" font-weight="600">sincos_func</text>
+<text class="t3" x="140" y="230" font-size="11">is_cos adds a quarter period to the phase</text>
+<text class="t3" x="832" y="230" font-size="11" text-anchor="end">2 cycles · 4 DSP48 · 1 table for sin and cos</text>
+<g font-size="11" text-anchor="middle">
+  <rect class="stage" x="48" y="246" width="296" height="56" rx="6"/>
+  <text class="t1" x="196" y="269" font-size="12">phase reduction, combinational</text>
+  <text class="t3" x="196" y="287">Q17.23 · × 1/2π · two's complement · quadrant</text>
+  <rect class="rom" x="360" y="246" width="220" height="56" rx="6"/>
+  <text class="t1" x="470" y="269" font-size="12">quarter-period sine table</text>
+  <text class="t3" x="470" y="287">outside the module · flags latched</text>
+  <rect class="stage" x="596" y="246" width="216" height="56" rx="6"/>
+  <text class="t1" x="704" y="269" font-size="12">quadrant sign + entry</text>
+  <text class="t3" x="704" y="287">function tag travels with valid</text>
+</g>
+<g class="flow">
+  <path d="M344 274 h16"/><path d="M580 274 h16"/>
+</g>
+
+<!-- rsqrt -->
+<rect class="group" x="32" y="336" width="816" height="112" rx="8"/>
+<text class="t1" x="48" y="358" font-size="12.5" font-weight="600">rsqrt_func</text>
+<text class="t3" x="832" y="358" font-size="11" text-anchor="end">4 cycles · 0 DSP48 · 2 tables</text>
+<g font-size="11" text-anchor="middle">
+  <rect class="stage" x="48" y="374" width="140" height="56" rx="6"/>
+  <text class="t1" x="118" y="397" font-size="12">classify</text>
+  <text class="t3" x="118" y="415">DAZ, NaN, sign</text>
+  <rect class="stage" x="204" y="374" width="140" height="56" rx="6"/>
+  <text class="t1" x="274" y="397" font-size="12">exponent parity</text>
+  <text class="t3" x="274" y="415">k and table address</text>
+  <rect class="rom" x="360" y="374" width="140" height="56" rx="6"/>
+  <text class="t1" x="430" y="397" font-size="12">even and odd tables</text>
+  <text class="t3" x="430" y="415">read in parallel</text>
+  <rect class="stage" x="516" y="374" width="140" height="56" rx="6"/>
+  <text class="t1" x="586" y="397" font-size="12">select by parity</text>
+  <text class="t3" x="586" y="415">latch entry</text>
+  <rect class="stage" x="672" y="374" width="140" height="56" rx="6"/>
+  <text class="t1" x="742" y="397" font-size="12">table exponent + k</text>
+  <text class="t3" x="742" y="415">special values</text>
+</g>
+<g class="flow">
+  <path d="M188 402 h16"/><path d="M344 402 h16"/><path d="M500 402 h16"/><path d="M656 402 h16"/>
+</g>
+
+<text class="t3" x="32" y="472" font-size="11.5">No iteration and no feedback loop. Every stage is a register, so each unit accepts a new input every cycle (II = 1).</text>
+<text class="t3" x="32" y="490" font-size="11.5">Blue boxes are the 1024 × 32 synchronous ROMs. Resource figures: out-of-context synthesis, Vivado 2025.2, xc7a200tfbg676-1.</text>
+</svg>
