@@ -33,6 +33,9 @@ module fp32_fpu_top #(
     // 乘出口，延迟 `FP32_MUL_LAT
     output                  fpu_fmul_valid,
     output     [31:0]       fpu_fmul_data,
+    // 除出口，延迟 `FP32_DIV_LAT
+    output                  fpu_fdiv_valid,
+    output     [31:0]       fpu_fdiv_data,
     // 比较出口，延迟 `FP32_CMP_LAT
     output                  fpu_fcmp_valid,
     output     [31:0]       fpu_fcmp_data,
@@ -51,7 +54,7 @@ module fp32_fpu_top #(
         if (OpWidth != `FP32_OP_WIDTH) begin : gen_op_width_check
             fp32_error_OpWidth_must_equal_FP32_OP_WIDTH u_op_width_check ();
         end
-        // 五个计算单元均在输出寄存器前收口，延迟不可能为 0；
+        // 六个计算单元均在输出寄存器前收口，延迟不可能为 0；
         // 填 0 意味着该出口为组合直通，调用方的 valid 对齐将整体错位。
         if (`FP32_ADD_LAT < 1) begin : gen_add_lat_check
             fp32_error_FP32_ADD_LAT_must_be_positive u_add_lat_check ();
@@ -68,6 +71,10 @@ module fp32_fpu_top #(
         if (`FP32_RECIP_LAT < 1) begin : gen_recip_lat_check
             fp32_error_FP32_RECIP_LAT_must_be_positive u_recip_lat_check ();
         end
+        if (`FP32_DIV_LAT < 1) begin : gen_div_lat_check
+            fp32_error_FP32_DIV_LAT_must_be_positive u_div_lat_check ();
+        end
+
     endgenerate
 
     // 指令译码
@@ -77,6 +84,7 @@ module fp32_fpu_top #(
     wire cmd_fcmp  = (fpu_op == `FP32_OP_FCMP);
     wire cmd_cvt   = (fpu_op == `FP32_OP_FCVT);
     wire cmd_recip = (fpu_op == `FP32_OP_FRECIP);
+    wire cmd_div   = (fpu_op == `FP32_OP_FDIV);
 
     // 加减共用的第二操作数
     wire [31:0] faddsub_b = cmd_fsub ? {~fpu_b[31], fpu_b[30:0]} : fpu_b;   // FSUB 走加法通路，翻 b 的符号位
@@ -103,6 +111,18 @@ module fp32_fpu_top #(
         .flush     (fpu_flush),
         .out_valid (fpu_fmul_valid),
         .p         (fpu_fmul_data)
+    );
+
+    // 除
+    fp32_div u_div (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .a         (fpu_a),
+        .b         (fpu_b),
+        .in_valid  (fpu_in_valid && cmd_div),
+        .flush     (fpu_flush),
+        .out_valid (fpu_fdiv_valid),
+        .result    (fpu_fdiv_data)
     );
 
     // 比较

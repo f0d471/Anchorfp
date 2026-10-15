@@ -6,16 +6,16 @@
 // fp32_lat.vh 声明各计算单元的流水延迟，RTL 的 valid 链是其实际取值。
 // 例化期断言只能约束常数之间的关系，两者的一致性由本 TB 施加。
 //
-// 判据 17 条：
-//   [1]-[5]   五个计算单元的 in_valid 到 out_valid 实测拍数等于对应宏。
-//             五个单元共享同一触发脉冲，一次发射同时测量。
+// 判据 19 条：
+//   [1]-[5]、[18]  六个计算单元的 in_valid 到 out_valid 实测拍数等于对应宏。
+//                  它们共享同一触发脉冲，一次发射同时测量。
 //   [6]       fp32_mac_unit 末项 prod_valid 到 out_valid 等于 FP32_MAC_OUT_LAT。
 //   [7]       fp32_mac_unit 首项 prod_valid 到 out_valid 等于
 //             (K-1) * FP32_MAC_PACE + FP32_MAC_OUT_LAT，与 [6] 构成交叉约束。
 //   [8]       按 FP32_MAC_PACE 喂入时结果精确正确。
 //   [9]       非融合那一档（FuseMul=0）的输出延迟等于 FP32_MAC_OUT_LAT_F(0)。
 //             两档共用一个公式，任一档写错都会被这一对交叉约束抓住。
-//   [10]-[13] 四个精确值逐位比对，排除残留 valid 造成的误判。
+//   [10]-[13]、[19] 五个精确值逐位比对，排除残留 valid 造成的误判。
 //   [14]-[16] fp32_mac_unit 三条调用契约的断言各注错一次见红：C2 单独拉高 last；
 //             C3 在末项之后第 1 拍再喂一个积，那一拍模块内部没有忙标志是高的，
 //             用来证明区间取的是末项到 out_valid；C3 再在 out_valid 前一拍注一次。
@@ -28,7 +28,7 @@
 //   iverilog -g2012 -I. -o /tmp/tb_fp_lat.vvp \
 //     ../sim/tb_fp_lat.v \
 //     fp32_add.v fp32_mul_pipe.v fp32_cmp.v \
-//     fp32_cvt.v fp32_recip.v fp32_mac_unit.v \
+//     fp32_cvt.v fp32_recip.v fp32_mac_unit.v fp32_div.v \
 //     ../../common/bram_lut_1024x32.v
 //   vvp /tmp/tb_fp_lat.vvp
 //============================================================================
@@ -86,13 +86,15 @@ module tb_fp_lat;
     reg  [31:0] opa = 0, opb = 0;
     reg  [6:0]  imm = 0;
 
-    wire        ov_add, ov_mul, ov_cmp, ov_cvt, ov_rcp;
-    wire [31:0] d_add,  d_mul,  d_cmp,  d_cvt,  d_rcp;
+    wire        ov_add, ov_mul, ov_div, ov_cmp, ov_cvt, ov_rcp;
+    wire [31:0] d_add,  d_mul,  d_div,  d_cmp,  d_cvt,  d_rcp;
 
     fp32_add      u_add (.clk(clk), .rst_n(rst_n), .a(opa), .b(opb),
                          .s(d_add), .in_valid(trig), .flush(1'b0), .out_valid(ov_add));
     fp32_mul_pipe u_mul (.clk(clk), .rst_n(rst_n), .a(opa), .b(opb),
                          .p(d_mul), .in_valid(trig), .flush(1'b0), .out_valid(ov_mul));
+    fp32_div      u_div (.clk(clk), .rst_n(rst_n), .a(opa), .b(opb),
+                         .in_valid(trig), .flush(1'b0), .out_valid(ov_div), .result(d_div));
     fp32_cmp      u_cmp (.clk(clk), .rst_n(rst_n), .a(opa), .b(opb), .gt_family(imm[0]),
                          .in_valid(trig), .flush(1'b0), .out_valid(ov_cmp), .result(d_cmp));
     fp32_cvt      u_cvt (.clk(clk), .rst_n(rst_n), .in(opa), .mode(imm[0]), .is_unsigned(imm[1]),
@@ -101,14 +103,15 @@ module tb_fp_lat;
                          .in_valid(trig), .flush(1'b0), .out_valid(ov_rcp), .result(d_rcp));
 
     integer t0 = 0;
-    integer lat_add, lat_mul, lat_cmp, lat_cvt, lat_rcp;
-    reg [31:0] val_add, val_mul, val_cvt, val_rcp;
+    integer lat_add, lat_mul, lat_div, lat_cmp, lat_cvt, lat_rcp;
+    reg [31:0] val_add, val_mul, val_div, val_cvt, val_rcp;
 
     // negedge 观察：cyc 与各 out_valid 此时均已稳定，避开 posedge 的调度竞态。
     // 只记录第一次，后面的脉冲不覆盖。
     always @(negedge clk) begin
         if (ov_add && lat_add < 0) begin lat_add = cyc - t0; val_add = d_add; end
         if (ov_mul && lat_mul < 0) begin lat_mul = cyc - t0; val_mul = d_mul; end
+        if (ov_div && lat_div < 0) begin lat_div = cyc - t0; val_div = d_div; end
         if (ov_cmp && lat_cmp < 0) begin lat_cmp = cyc - t0;                   end
         if (ov_cvt && lat_cvt < 0) begin lat_cvt = cyc - t0; val_cvt = d_cvt; end
         if (ov_rcp && lat_rcp < 0) begin lat_rcp = cyc - t0; val_rcp = d_rcp; end
@@ -120,7 +123,7 @@ module tb_fp_lat;
         input [31:0] b_in;
         input [6:0]  im_in;
         begin
-            lat_add = -1; lat_mul = -1; lat_cmp = -1; lat_cvt = -1; lat_rcp = -1;
+            lat_add = -1; lat_mul = -1; lat_div = -1; lat_cmp = -1; lat_cvt = -1; lat_rcp = -1;
             @(negedge clk);
             t0  = cyc;
             opa = a_in; opb = b_in; imm = im_in;
@@ -261,6 +264,10 @@ module tb_fp_lat;
         fire(32'h40000000, 32'd0, 7'd0);               // 1/2.0，2 的幂走精确路径
         check_lat("[5]  fp32_recip   ", lat_rcp, `FP32_RECIP_LAT);
         check_val("[13] 1/2.0        ", val_rcp, 32'h3F000000);
+
+        fire(32'h3F800000, 32'h40000000, 7'd0);        // 1.0, 2.0
+        check_lat("[18] fp32_div     ", lat_div, `FP32_DIV_LAT);
+        check_val("[19] 1.0/2.0      ", val_div, 32'h3F000000);
 
         // B 组：mac_unit 的两条延迟恒等式
         run_dot(Pace);

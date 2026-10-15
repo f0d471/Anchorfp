@@ -18,7 +18,7 @@ mkdir -p "$BIN"
 build() { $CC $CFLAGS -o "$BIN/$1" "$1.c"; }
 
 for g in gen_add_vectors gen_mul_vectors gen_cmp_vectors gen_cvt_vectors \
-         gen_ftz_vectors gen_denorm_vectors gen_recip_vectors; do
+         gen_ftz_vectors gen_denorm_vectors gen_recip_vectors gen_div_vectors; do
     build "$g"
 done
 
@@ -27,10 +27,14 @@ done
 "$BIN/gen_add_vectors" 300000 7 | head -n 250000 > vectors_add.txt
 "$BIN/gen_mul_vectors" 220000 1 | head -n 200000 > vectors_mul.txt
 
-# 这三个生成器自己写文件，条数由内部的定向用例决定
+# 这几个生成器自己写文件，条数由内部的定向用例决定
 "$BIN/gen_cmp_vectors"   200000 37
 "$BIN/gen_cvt_vectors"   100000 37
 "$BIN/gen_recip_vectors" 20000 37
+
+# 除法的两个随机档各取 500000 条（§8.3 的下界），加定向族共约 100 万条；
+# 只要快速跑通链路，把这里的 500000 改成 20000 即可
+"$BIN/gen_div_vectors"   500000 41
 
 # FTZ 档：0 为加法，1 为乘法
 "$BIN/gen_ftz_vectors" 0 200000 13

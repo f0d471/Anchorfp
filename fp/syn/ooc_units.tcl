@@ -1,6 +1,6 @@
 # 标量 FP32 单元的离线综合快照：网表单元计数与 20 ns 约束下的最差路径
 #   用法：vivado -mode batch -source ooc_units.tcl -tclargs <顶层> [器件]
-#   顶层：fp32_add、fp32_mul_pipe、fp32_cmp、fp32_cvt、fp32_recip、fp32_fpu_top
+#   顶层：fp32_add、fp32_mul_pipe、fp32_cmp、fp32_cvt、fp32_recip、fp32_div、fp32_fpu_top
 #   结果直接数网表单元，不解析报告文本
 
 proc arg {i d} { global argv; if {[llength $argv] > $i} { return [lindex $argv $i] }; return $d }
@@ -9,7 +9,7 @@ set top  [arg 0 fp32_add]
 set part [arg 1 xc7a200tfbg676-1]
 
 read_verilog [list ../rtl/fp32_add.v ../rtl/fp32_mul_pipe.v ../rtl/fp32_cmp.v ../rtl/fp32_cvt.v \
-                   ../rtl/fp32_recip.v ../rtl/fp32_fpu_top.v ../../common/bram_lut_1024x32.v]
+                   ../rtl/fp32_recip.v ../rtl/fp32_div.v ../rtl/fp32_fpu_top.v ../../common/bram_lut_1024x32.v]
 set_property include_dirs [list ../rtl] [current_fileset]
 # $readmemh 用裸文件名，把表登记进工程供综合查找
 read_mem ../rtl/recip_lut.mem

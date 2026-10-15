@@ -32,11 +32,12 @@ check fp32_add       "$RTL/fp32_add.v"
 check fp32_mul_pipe  "$RTL/fp32_mul_pipe.v"
 check fp32_cmp       "$RTL/fp32_cmp.v"
 check fp32_cvt       "$RTL/fp32_cvt.v"
+check fp32_div       "$RTL/fp32_div.v"
 check fp32_recip     "$RTL/fp32_recip.v" "$COMMON/bram_lut_1024x32.v"
 check fp32_mac_unit  "$RTL/fp32_mac_unit.v" "$RTL/fp32_mul_pipe.v"
 check fp32_fpu_top   "$RTL/fp32_fpu_top.v" "$RTL/fp32_add.v" "$RTL/fp32_mul_pipe.v" \
-                     "$RTL/fp32_cmp.v" "$RTL/fp32_cvt.v" "$RTL/fp32_recip.v" \
-                     "$COMMON/bram_lut_1024x32.v"
+                     "$RTL/fp32_div.v" "$RTL/fp32_cmp.v" "$RTL/fp32_cvt.v" \
+                     "$RTL/fp32_recip.v" "$COMMON/bram_lut_1024x32.v"
 
 if [ "$BAD" -eq 0 ]; then
     echo "  ALL PASS"

@@ -35,4 +35,7 @@
 // 产线构型 FuseMul = 1 那一档，保留原名给既有调用方
 `define FP32_MAC_OUT_LAT `FP32_MAC_OUT_LAT_F(1)
 
+//除法器要求固定延迟为14拍
+`define FP32_DIV_LAT 14
+
 `endif // FP32_LAT_VH

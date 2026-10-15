@@ -20,6 +20,7 @@
 `define FP32_OP_FADD   4'd4
 `define FP32_OP_FSUB   4'd5
 `define FP32_OP_FMUL   4'd6
+`define FP32_OP_FDIV   4'd7
 `define FP32_OP_FCMP   4'd8
 `define FP32_OP_FCVT   4'd9
 `define FP32_OP_FRECIP 4'd13
@@ -28,6 +29,7 @@
 `define FP32_OP_IS_FPU(c) ( ((c) == `FP32_OP_FADD)   || \
                             ((c) == `FP32_OP_FSUB)   || \
                             ((c) == `FP32_OP_FMUL)   || \
+                            ((c) == `FP32_OP_FDIV)   || \
                             ((c) == `FP32_OP_FCMP)   || \
                             ((c) == `FP32_OP_FCVT)   || \
                             ((c) == `FP32_OP_FRECIP) )
